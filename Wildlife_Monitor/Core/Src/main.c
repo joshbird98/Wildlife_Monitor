@@ -86,7 +86,7 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   /* USER CODE BEGIN 2 */
-
+  //Hello test comment for git
   /* USER CODE END 2 */
 
   /* Infinite loop */
