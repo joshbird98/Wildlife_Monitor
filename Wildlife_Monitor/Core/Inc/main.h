@@ -58,8 +58,66 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define LED_TEST_Pin GPIO_PIN_11
-#define LED_TEST_GPIO_Port GPIOG
+#define CHRG_PG_Pin GPIO_PIN_2
+#define CHRG_PG_GPIO_Port GPIOE
+#define CHRG_STAT2_Pin GPIO_PIN_3
+#define CHRG_STAT2_GPIO_Port GPIOE
+#define CHRG_STAT1_Pin GPIO_PIN_4
+#define CHRG_STAT1_GPIO_Port GPIOE
+#define CS_EINK_Pin GPIO_PIN_7
+#define CS_EINK_GPIO_Port GPIOF
+#define DC_EINK_Pin GPIO_PIN_8
+#define DC_EINK_GPIO_Port GPIOF
+#define RST_EINK_Pin GPIO_PIN_9
+#define RST_EINK_GPIO_Port GPIOF
+#define BUSY_EINK_Pin GPIO_PIN_10
+#define BUSY_EINK_GPIO_Port GPIOF
+#define RADIO_TX_Pin GPIO_PIN_0
+#define RADIO_TX_GPIO_Port GPIOH
+#define RADIO_RX_Pin GPIO_PIN_1
+#define RADIO_RX_GPIO_Port GPIOH
+#define AN_VUREG_Pin GPIO_PIN_0
+#define AN_VUREG_GPIO_Port GPIOC
+#define AN_BAT_Pin GPIO_PIN_1
+#define AN_BAT_GPIO_Port GPIOC
+#define AN_INTMIC_Pin GPIO_PIN_2
+#define AN_INTMIC_GPIO_Port GPIOC
+#define MODE_Pin GPIO_PIN_3
+#define MODE_GPIO_Port GPIOC
+#define CS_MIC_GAIN_Pin GPIO_PIN_2
+#define CS_MIC_GAIN_GPIO_Port GPIOA
+#define CS_MIC_ADC_Pin GPIO_PIN_3
+#define CS_MIC_ADC_GPIO_Port GPIOA
+#define RADIO_DIO1_Pin GPIO_PIN_4
+#define RADIO_DIO1_GPIO_Port GPIOC
+#define RADIO_BUSY_Pin GPIO_PIN_5
+#define RADIO_BUSY_GPIO_Port GPIOC
+#define RADIO_RST_Pin GPIO_PIN_0
+#define RADIO_RST_GPIO_Port GPIOB
+#define CS_RADIO_Pin GPIO_PIN_1
+#define CS_RADIO_GPIO_Port GPIOB
+#define MIC_ACTIVE_Pin GPIO_PIN_2
+#define MIC_ACTIVE_GPIO_Port GPIOB
+#define CARD_Pin GPIO_PIN_7
+#define CARD_GPIO_Port GPIOC
+#define GREEN_3_Pin GPIO_PIN_3
+#define GREEN_3_GPIO_Port GPIOD
+#define RED_3_Pin GPIO_PIN_4
+#define RED_3_GPIO_Port GPIOD
+#define BLUE_3_Pin GPIO_PIN_5
+#define BLUE_3_GPIO_Port GPIOD
+#define GREEN_2_Pin GPIO_PIN_7
+#define GREEN_2_GPIO_Port GPIOD
+#define RED_2_Pin GPIO_PIN_9
+#define RED_2_GPIO_Port GPIOG
+#define BLUE_2_Pin GPIO_PIN_10
+#define BLUE_2_GPIO_Port GPIOG
+#define GREEN_1_Pin GPIO_PIN_11
+#define GREEN_1_GPIO_Port GPIOG
+#define RED_1_Pin GPIO_PIN_12
+#define RED_1_GPIO_Port GPIOG
+#define BLUE_1_Pin GPIO_PIN_13
+#define BLUE_1_GPIO_Port GPIOG
 /* USER CODE BEGIN Private defines */
 
 /* USER CODE END Private defines */
