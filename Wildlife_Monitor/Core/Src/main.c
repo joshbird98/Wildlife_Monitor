@@ -27,6 +27,7 @@
 #include "usbd_cdc_if.h"
 #include "string.h"
 #include "stdio.h"
+#include "mcp33131.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -37,6 +38,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define ADC_BUFFER_LEN 3
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -54,16 +56,33 @@ CRC_HandleTypeDef hcrc;
 
 DFSDM_Channel_HandleTypeDef hdfsdm1_channel1;
 
+RTC_HandleTypeDef hrtc;
+
 SD_HandleTypeDef hsd1;
 
 SPI_HandleTypeDef hspi1;
 
+TIM_HandleTypeDef htim16;
+TIM_HandleTypeDef htim17;
+
 UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
+struct PowerStatus PowerStatus1;
+
 uint8_t usb_rxbuffer[64];
 uint16_t adc_buffer[ADC_BUFFER_LEN];
 
+//Audio capture - not yet tested
+// TIMER16 sets off an interrupt every 1/AUDIO_SAMPLE_RATE seconds.
+// On this interrupt, a function retrieves a 16-bit audio sample from
+// the external MCP33131 ADC, and stores it in the audio_buffer below.
+// Then the audio buffer location is incremented, before rolling back
+// to position zero. This buffer holds AUDIO_BUFFER_SECS seconds of audio.
+// when buffer location reaches fall or half-full, a flag is set
+uint8_t audio_buffer_flag = 0;
+uint32_t audio_buffer_location = 0;
+uint16_t audio_buffer[AUDIO_SAMPLE_RATE * AUDIO_BUFFER_SECS];
 
 /* USER CODE END PV */
 
@@ -79,8 +98,11 @@ static void MX_SPI1_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_CRC_Init(void);
 static void MX_DMA_Init(void);
+static void MX_RTC_Init(void);
+static void MX_TIM16_Init(void);
+static void MX_TIM17_Init(void);
 /* USER CODE BEGIN PFP */
-float internal_temp_sensor_convert(uint16_t temp_bits);
+struct PowerStatus updatePowerStatus( struct PowerStatus powerstat);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -129,8 +151,35 @@ int main(void)
   MX_CRC_Init();
   MX_DMA_Init();
   MX_USB_DEVICE_Init();
+  MX_RTC_Init();
+  MX_TIM16_Init();
+  MX_TIM17_Init();
   /* USER CODE BEGIN 2 */
   HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buffer, ADC_BUFFER_LEN);
+  HAL_TIM_Base_Start_IT(&htim16);
+
+  //Blink LED from R->G->B on powerup
+  HAL_GPIO_WritePin(GPIOG, RED_1_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GPIOG, GREEN_1_Pin|BLUE_1_Pin, GPIO_PIN_RESET);
+  HAL_Delay(1000);
+  HAL_GPIO_WritePin(GPIOG, GREEN_1_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GPIOG, RED_1_Pin|BLUE_1_Pin, GPIO_PIN_RESET);
+  HAL_Delay(1000);
+  HAL_GPIO_WritePin(GPIOG, BLUE_1_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GPIOG, RED_1_Pin|BLUE_1_Pin, GPIO_PIN_RESET);
+  HAL_Delay(1000);
+
+  //Print out startup-message to USB
+  char *data = "Wildlife Monitor says hello over USB!\n";
+  CDC_Transmit_FS(data, strlen(data));		//yes I know this throws a warning - it should be okay - JB
+  // note that I have set it up so received USB data ends up in usb_rxbuffer
+
+  updatePowerStatus(PowerStatus1);
+
+  //Print out battery voltage [millivolts] to USB
+  char msg_data[10];
+  int str_len = sprintf(msg_data, "%d", PowerStatus1.battery_millivolts);
+  CDC_Transmit_FS(msg_data, str_len);		//yes I know this throws a warning - it should be okay - JB
 
   /* USER CODE END 2 */
 
@@ -138,30 +187,18 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	//Blink LED from R->G->B|
-	HAL_GPIO_WritePin(GPIOG, RED_1_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(GPIOG, GREEN_1_Pin|BLUE_1_Pin, GPIO_PIN_RESET);
-	HAL_Delay(1000);
-	HAL_GPIO_WritePin(GPIOG, GREEN_1_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(GPIOG, RED_1_Pin|BLUE_1_Pin, GPIO_PIN_RESET);
-	HAL_Delay(1000);
-	HAL_GPIO_WritePin(GPIOG, BLUE_1_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(GPIOG, RED_1_Pin|BLUE_1_Pin, GPIO_PIN_RESET);
-	HAL_Delay(1000);
 
-	//Print out to USB
-	char *data = "Wildlife Monitor says hello over USB!\n";
-	CDC_Transmit_FS(data, strlen(data));
-	// note that I have set it up so received USB data ends up in usb_rxbuffer
 
-	//Read analog voltage from battery
-	//adc_buffer is continually being filled via DMA, so just access the correct index for latest ADC reading...
-	uint16_t ureg_millivolts 	= adc_buffer[1] * 1.611721;
-	uint16_t battery_millivolts = adc_buffer[2] * 1.611721; //scales from bits into millivolts
-	if (ureg_millivolts > battery_millivolts + 200);		//device is running from solar or USB
-	if (battery_millivolts < 3300);							//battery is running low, should be cut-off before undercharging
-
-	//Write startup log to microSD card
+	//Check audio buffer for new sample
+	if (audio_buffer_flag == 1) {	//buffer is half full with new data
+		audio_buffer_flag = 0;
+		if (audio_buffer_location > (AUDIO_SAMPLE_RATE * AUDIO_BUFFER_SECS / 2)) {
+			//half-buffer sample is available in first half of audio_buffer
+		}
+		else {
+			//half-buffer sample is available in second half of audio_buffer
+		}
+	}
 
 
     /* USER CODE END WHILE */
@@ -193,11 +230,12 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_LSE
-                              |RCC_OSCILLATORTYPE_MSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_LSI
+                              |RCC_OSCILLATORTYPE_LSE|RCC_OSCILLATORTYPE_MSI;
   RCC_OscInitStruct.LSEState = RCC_LSE_ON;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.MSIState = RCC_MSI_ON;
   RCC_OscInitStruct.MSICalibrationValue = 0;
   RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_11;
@@ -432,6 +470,69 @@ static void MX_DFSDM1_Init(void)
 }
 
 /**
+  * @brief RTC Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_RTC_Init(void)
+{
+
+  /* USER CODE BEGIN RTC_Init 0 */
+
+  /* USER CODE END RTC_Init 0 */
+
+  RTC_TimeTypeDef sTime = {0};
+  RTC_DateTypeDef sDate = {0};
+
+  /* USER CODE BEGIN RTC_Init 1 */
+
+  /* USER CODE END RTC_Init 1 */
+  /** Initialize RTC Only
+  */
+  hrtc.Instance = RTC;
+  hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
+  hrtc.Init.AsynchPrediv = 127;
+  hrtc.Init.SynchPrediv = 255;
+  hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
+  hrtc.Init.OutPutRemap = RTC_OUTPUT_REMAP_NONE;
+  hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
+  hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
+  if (HAL_RTC_Init(&hrtc) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /* USER CODE BEGIN Check_RTC_BKUP */
+
+  /* USER CODE END Check_RTC_BKUP */
+
+  /** Initialize RTC and set the Time and Date
+  */
+  sTime.Hours = 0x0;
+  sTime.Minutes = 0x0;
+  sTime.Seconds = 0x0;
+  sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+  sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+  if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sDate.WeekDay = RTC_WEEKDAY_MONDAY;
+  sDate.Month = RTC_MONTH_JANUARY;
+  sDate.Date = 0x1;
+  sDate.Year = 0x0;
+
+  if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN RTC_Init 2 */
+
+  /* USER CODE END RTC_Init 2 */
+
+}
+
+/**
   * @brief SDMMC1 Initialization Function
   * @param None
   * @retval None
@@ -496,6 +597,70 @@ static void MX_SPI1_Init(void)
   /* USER CODE BEGIN SPI1_Init 2 */
 
   /* USER CODE END SPI1_Init 2 */
+
+}
+
+/**
+  * @brief TIM16 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM16_Init(void)
+{
+
+  /* USER CODE BEGIN TIM16_Init 0 */
+
+  /* USER CODE END TIM16_Init 0 */
+
+  /* USER CODE BEGIN TIM16_Init 1 */
+
+  /* USER CODE END TIM16_Init 1 */
+  htim16.Instance = TIM16;
+  htim16.Init.Prescaler = 0;
+  htim16.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim16.Init.Period = (120000000/AUDIO_SAMPLE_RATE)-1;
+  htim16.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim16.Init.RepetitionCounter = 0;
+  htim16.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim16) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM16_Init 2 */
+
+  /* USER CODE END TIM16_Init 2 */
+
+}
+
+/**
+  * @brief TIM17 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM17_Init(void)
+{
+
+  /* USER CODE BEGIN TIM17_Init 0 */
+
+  /* USER CODE END TIM17_Init 0 */
+
+  /* USER CODE BEGIN TIM17_Init 1 */
+
+  /* USER CODE END TIM17_Init 1 */
+  htim17.Instance = TIM17;
+  htim17.Init.Prescaler = 0;
+  htim17.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim17.Init.Period = 90-1;
+  htim17.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim17.Init.RepetitionCounter = 0;
+  htim17.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim17) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM17_Init 2 */
+
+  /* USER CODE END TIM17_Init 2 */
 
 }
 
@@ -684,6 +849,70 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+// Callback: timer has rolled over - time to sample audio from via external ADC
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  // Check timer interrupt came from TIM16
+  if (htim == &htim16)
+  {
+    //sample audio on this interrupt
+	audio_buffer[audio_buffer_location] = mcp33131_get16b(hspi1);
+	audio_buffer_location += 1;
+	if (audio_buffer_location >= (AUDIO_SAMPLE_RATE * AUDIO_BUFFER_SECS)) {
+		audio_buffer_location = 0; //handles rollover (circular buffer)
+		audio_buffer_flag = 1;
+	}
+	if (audio_buffer_location == (AUDIO_SAMPLE_RATE * AUDIO_BUFFER_SECS / 2)) {
+		audio_buffer_flag = 1;
+	}
+  }
+}
+
+// Function updates the power status structure, with newest voltages and status's
+struct PowerStatus updatePowerStatus( struct PowerStatus powerstat)
+{
+	//adc_buffer is continually being filled via DMA, so just access the correct index for latest ADC reading...
+	powerstat.ureg_millivolts 	 = adc_buffer[1] * 1.611721; 	//scales from bits into millivolts
+	powerstat.battery_millivolts = adc_buffer[2] * 1.611721;
+
+	if (powerstat.ureg_millivolts > (powerstat.battery_millivolts + 200)) 			//solar or usb is plugged in
+		powerstat.status_flag |= EXT_PWR_DETECTED;
+	else
+		powerstat.status_flag &= ~EXT_PWR_DETECTED;
+
+	if (powerstat.battery_millivolts < 3300)								//battery is running low!
+		powerstat.status_flag |= BATTERY_LOW;
+	else
+		powerstat.status_flag &= ~BATTERY_LOW;
+
+	if (powerstat.battery_millivolts > 4300)								//battery appears overcharged (>4.3V)
+		powerstat.status_flag |= BATTERY_OVERCHRG;
+	else
+		powerstat.status_flag &= ~BATTERY_OVERCHRG;
+
+	// now read from MCP73871 outputs for charger-status
+	uint8_t chrg_stat1 = HAL_GPIO_ReadPin(CHRG_STAT1_GPIO_Port, CHRG_STAT1_Pin);
+	uint8_t chrg_stat2 = HAL_GPIO_ReadPin(CHRG_STAT2_GPIO_Port, CHRG_STAT2_Pin);
+	uint8_t chrg_pg    = HAL_GPIO_ReadPin(CHRG_PG_GPIO_Port, CHRG_PG_Pin);
+
+	if ((chrg_stat2 == 0) && (chrg_pg == 0))
+	{
+		if (chrg_stat1 == 0)
+		{
+			powerstat.status_flag |= CHARGER_FAULT;
+			powerstat.status_flag &= ~BATT_CHARGED;
+		}
+		else
+		{
+			powerstat.status_flag |= BATT_CHARGED;
+			powerstat.status_flag &= ~CHARGER_FAULT;
+		}
+	}
+
+	return powerstat;
+}
+
 
 /* USER CODE END 4 */
 

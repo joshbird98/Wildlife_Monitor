@@ -58,6 +58,7 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define AUDIO_SAMPLE_RATE 44100
 #define CHRG_PG_Pin GPIO_PIN_2
 #define CHRG_PG_GPIO_Port GPIOE
 #define CHRG_STAT2_Pin GPIO_PIN_3
@@ -119,6 +120,18 @@ void Error_Handler(void);
 #define BLUE_1_Pin GPIO_PIN_13
 #define BLUE_1_GPIO_Port GPIOG
 /* USER CODE BEGIN Private defines */
+#define AUDIO_BUFFER_SECS 3
+#define EXT_PWR_DETECTED 	0b00000001
+#define BATTERY_LOW			0b00000010
+#define BATTERY_OVERCHRG	0b00000100
+#define CHARGER_FAULT 		0b00001000
+#define BATT_CHARGED		0b00010000
+
+struct PowerStatus {
+	uint8_t status_flag;
+	uint16_t ureg_millivolts;
+	uint16_t battery_millivolts;
+};
 
 /* USER CODE END Private defines */
 
