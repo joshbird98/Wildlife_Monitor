@@ -28,6 +28,7 @@
 #include "string.h"
 #include "stdio.h"
 #include "mcp33131.h"
+#include "File_Handling.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -73,6 +74,7 @@ struct PowerStatus PowerStatus1;
 uint8_t usb_rxbuffer[64];
 uint16_t adc_buffer[ADC_BUFFER_LEN];
 
+
 //Audio capture - not yet tested
 // TIMER16 sets off an interrupt every 1/AUDIO_SAMPLE_RATE seconds.
 // On this interrupt, a function retrieves a 16-bit audio sample from
@@ -83,6 +85,7 @@ uint16_t adc_buffer[ADC_BUFFER_LEN];
 uint8_t audio_buffer_flag = 0;
 uint32_t audio_buffer_location = 0;
 uint16_t audio_buffer[AUDIO_SAMPLE_RATE * AUDIO_BUFFER_SECS];
+
 
 /* USER CODE END PV */
 
@@ -103,6 +106,7 @@ static void MX_TIM16_Init(void);
 static void MX_TIM17_Init(void);
 /* USER CODE BEGIN PFP */
 struct PowerStatus updatePowerStatus( struct PowerStatus powerstat);
+void write_audio_sample_sd(uint16_t *data);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -158,6 +162,7 @@ int main(void)
   HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buffer, ADC_BUFFER_LEN);
   HAL_TIM_Base_Start_IT(&htim16);
 
+
   //Blink LED from R->G->B on powerup
   HAL_GPIO_WritePin(GPIOG, RED_1_Pin, GPIO_PIN_SET);
   HAL_GPIO_WritePin(GPIOG, GREEN_1_Pin|BLUE_1_Pin, GPIO_PIN_RESET);
@@ -181,6 +186,13 @@ int main(void)
   int str_len = sprintf(msg_data, "%d", PowerStatus1.battery_millivolts);
   CDC_Transmit_FS(msg_data, str_len);		//yes I know this throws a warning - it should be okay - JB
 
+
+  //just trying out SD stuff here
+  Mount_SD("/");
+  Format_SD();
+  Create_File("FILE1.TXT");
+  Unmount_SD("/");
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -188,18 +200,28 @@ int main(void)
   while (1)
   {
 
-
 	//Check audio buffer for new sample
 	if (audio_buffer_flag == 1) {	//buffer is half full with new data
 		audio_buffer_flag = 0;
-		if (audio_buffer_location > (AUDIO_SAMPLE_RATE * AUDIO_BUFFER_SECS / 2)) {
-			//half-buffer sample is available in first half of audio_buffer
+		// determing start location of audio sample in buffer (either 0 or full/2)
+		uint32_t sample_start_location = 0;
+		if (audio_buffer_location < (AUDIO_SAMPLE_RATE * AUDIO_BUFFER_SECS / 2)) {
+			sample_start_location = (AUDIO_SAMPLE_RATE*AUDIO_BUFFER_SECS / 2);
 		}
-		else {
-			//half-buffer sample is available in second half of audio_buffer
-		}
+		//complete sample is breifly stored in memory from...
+		//audio_buffer[sample_start_location] to audio_buffer[sample_start_location+(AUDIO_SAMPLE_RATE * AUDIO_BUFFER_SECS / 2)]
+
+		//save newest audio sample to SD card
+		write_audio_sample_sd(&audio_buffer[sample_start_location]);
 	}
 
+	//just trying out SD stuff here
+	uint8_t indx = 42;
+	char sd_writebuffer[100];
+	Mount_SD("/");
+	sprintf(sd_writebuffer, "Hello ---> %d\n", indx);
+	Update_File("FILE1.TXT", sd_writebuffer);
+	Unmount_SD("/");
 
     /* USER CODE END WHILE */
 
@@ -911,6 +933,27 @@ struct PowerStatus updatePowerStatus( struct PowerStatus powerstat)
 	}
 
 	return powerstat;
+}
+
+// Writes in half the audio buffer to the SD in a file with timestamped name
+void write_audio_sample_sd(uint16_t *data)
+{
+	// read the RTC registers inside the STM32
+	uint32_t date_reg = RTC->DR;
+	uint32_t time_reg = RTC->TR;
+	// interpret their BCD format into regular values and assign to month,day,hours,min,secs
+	uint8_t month = (10 * ((date_reg >> 12) & 0x1)) + ((date_reg >> 8) & 0xF);
+	uint8_t day = (10 * ((date_reg >> 4	) & 0x3)) + (date_reg & 0x3F);
+	uint8_t hours = (10 * ((time_reg >> 20) & 0x3)) + ((time_reg >> 16) & 0xF);
+	uint8_t mins = (10 * ((time_reg >> 12) & 0x7)) + ((time_reg >> 8) & 0xF);
+	uint8_t secs = (10 * ((time_reg >> 4) & 0x7)) + (time_reg & 0xF);
+
+	Mount_SD("/");
+	char filename[100];
+	sprintf(filename, "AUDIO_SAMPLE_%d-%d_%d%d%d.raw", month, day, hours, mins, secs);
+	Create_File(filename);
+	Write_File_u16(filename, data, (AUDIO_SAMPLE_RATE*AUDIO_BUFFER_SECS));
+	Unmount_SD("/");
 }
 
 
