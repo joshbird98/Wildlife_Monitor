@@ -28,6 +28,7 @@
 #include "string.h"
 #include "stdio.h"
 #include "mcp33131.h"
+#include "mcp41010.h"
 #include "File_Handling.h"
 /* USER CODE END Includes */
 
@@ -162,6 +163,8 @@ int main(void)
   HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buffer, ADC_BUFFER_LEN);
   HAL_TIM_Base_Start_IT(&htim16);
 
+  //Set the microphone gain
+  set_mic_gain(1000, hspi1); //not sure what a suitable gain value would be yet
 
   //Blink LED from R->G->B on powerup
   HAL_GPIO_WritePin(GPIOG, RED_1_Pin, GPIO_PIN_SET);
@@ -185,7 +188,6 @@ int main(void)
   char msg_data[10];
   int str_len = sprintf(msg_data, "%d", PowerStatus1.battery_millivolts);
   CDC_Transmit_FS(msg_data, str_len);		//yes I know this throws a warning - it should be okay - JB
-
 
   //just trying out SD stuff here
   Mount_SD("/");
@@ -778,7 +780,10 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(RADIO_TX_GPIO_Port, RADIO_TX_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, CS_MIC_GAIN_Pin|CS_MIC_ADC_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(CS_MIC_GAIN_GPIO_Port, CS_MIC_GAIN_Pin, GPIO_PIN_SET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(CS_MIC_ADC_GPIO_Port, CS_MIC_ADC_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(RADIO_DIO1_GPIO_Port, RADIO_DIO1_Pin, GPIO_PIN_RESET);
