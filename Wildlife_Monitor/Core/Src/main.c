@@ -73,6 +73,7 @@ UART_HandleTypeDef huart1;
 struct PowerStatus PowerStatus1;
 
 uint8_t usb_rxbuffer[64];
+uint8_t usb_txbuffer[64];
 uint16_t adc_buffer[ADC_BUFFER_LEN];
 
 
@@ -108,6 +109,7 @@ static void MX_TIM17_Init(void);
 /* USER CODE BEGIN PFP */
 struct PowerStatus updatePowerStatus( struct PowerStatus powerstat);
 void write_audio_sample_sd(uint16_t *data);
+void led_rgb(uint8_t led, uint8_t colour);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -160,33 +162,39 @@ int main(void)
   MX_TIM16_Init();
   MX_TIM17_Init();
   /* USER CODE BEGIN 2 */
+
+  //the following code is just intended as examples to show how some in-built or custom functions COULD be used.
+  //feel free to change anything, and apologies for poor documentation, message me anytime for clarifications - JB
   HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buffer, ADC_BUFFER_LEN);
   HAL_TIM_Base_Start_IT(&htim16);
 
   //Set the microphone gain
   set_mic_gain(1000, hspi1); //not sure what a suitable gain value would be yet
 
-  //Blink LED from R->G->B on powerup
-  HAL_GPIO_WritePin(GPIOG, RED_1_Pin, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(GPIOG, GREEN_1_Pin|BLUE_1_Pin, GPIO_PIN_RESET);
+  //Demo LED colours on startup
+  led_rgb(1,'r');	//led 1 turns red
+  led_rgb(2,'y');	//led 2 turns yellow
+  led_rgb(3,'w');	//led 3 turns white
   HAL_Delay(1000);
-  HAL_GPIO_WritePin(GPIOG, GREEN_1_Pin, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(GPIOG, RED_1_Pin|BLUE_1_Pin, GPIO_PIN_RESET);
+  led_rgb(1,'g');	//led 1 turns green
+  led_rgb(2,'p');	//led 2 turns purple
+  led_rgb(3,'o');	//led 3 turns off
   HAL_Delay(1000);
-  HAL_GPIO_WritePin(GPIOG, BLUE_1_Pin, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(GPIOG, RED_1_Pin|BLUE_1_Pin, GPIO_PIN_RESET);
+  led_rgb(1,'b');	//led 1 turns blue
+  led_rgb(2,'c');	//led 2 turns cyan
+  led_rgb(3,'w');	//led 3 turns white
   HAL_Delay(1000);
 
   //Print out startup-message to USB
-  char *data = "Wildlife Monitor says hello over USB!\n";
-  CDC_Transmit_FS(data, strlen(data));		//yes I know this throws a warning - it should be okay - JB
+  int str_len = sprintf((char*)usb_txbuffer, "Wildlife Monitor says hello over USB!\n");
+  CDC_Transmit_FS(usb_txbuffer, str_len);		//yes I know this throws a warning - it should be okay - JB
   // note that I have set it up so received USB data ends up in usb_rxbuffer
 
   updatePowerStatus(PowerStatus1);
 
   //Print out battery voltage [millivolts] to USB
-  char msg_data[10];
-  int str_len = sprintf(msg_data, "%d", PowerStatus1.battery_millivolts);
+  uint8_t msg_data[10];
+  str_len = sprintf((char*)msg_data, "%d", PowerStatus1.battery_millivolts);
   CDC_Transmit_FS(msg_data, str_len);		//yes I know this throws a warning - it should be okay - JB
 
   //just trying out SD stuff here
@@ -792,11 +800,11 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOB, RADIO_RST_Pin|CS_RADIO_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOD, GREEN_3_Pin|RED_3_Pin|BLUE_3_Pin|GREEN_2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOD, GREEN_3_Pin|RED_3_Pin|BLUE_3_Pin|GREEN_2_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOG, RED_2_Pin|BLUE_2_Pin|GREEN_1_Pin|RED_1_Pin
-                          |BLUE_1_Pin, GPIO_PIN_RESET);
+                          |BLUE_1_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pins : CHRG_PG_Pin CHRG_STAT2_Pin CHRG_STAT1_Pin */
   GPIO_InitStruct.Pin = CHRG_PG_Pin|CHRG_STAT2_Pin|CHRG_STAT1_Pin;
@@ -961,6 +969,67 @@ void write_audio_sample_sd(uint16_t *data)
 	Unmount_SD("/");
 }
 
+// Set the led (1, 2 or 3) to a specific colour.
+//Available colours are (r)ed, (g)reen, (b)lue, (y)ellow, (p)urple, (c)yan, (w)hite or (o)ff.
+void led_rgb(uint8_t led, uint8_t colour) {
+  uint8_t red = 0;
+  uint8_t green = 0;
+  uint8_t blue = 0;
+  switch (colour)
+  {
+	case 'r':	//red
+	  red = 1;
+	  break;
+	case 'g':	//green
+	  green = 1;
+	  break;
+	case 'b':	//blue
+	  blue = 1;
+	  break;
+	case 'y':	//yellow
+	  red = 1;
+	  green = 1;
+	  break;
+	case 'p':	//purple
+	  red = 1;
+	  blue = 1;
+	  break;
+	case 'c':	//cyan or teal
+	  green = 1;
+	  blue = 1;
+	  break;
+	case 'w':	//white
+	  red = 1;
+	  green = 1;
+	  blue = 1;
+	  break;
+	case 'o':	//off
+	  break;
+	default:
+	  break;
+  }
+
+  switch (led)
+  {
+	case 1:
+	  HAL_GPIO_WritePin(RED_1_GPIO_Port, RED_1_Pin, !red);
+	  HAL_GPIO_WritePin(GREEN_1_GPIO_Port, GREEN_1_Pin, !green);
+	  HAL_GPIO_WritePin(BLUE_1_GPIO_Port, BLUE_1_Pin, !blue);
+	  break;
+	case 2:
+	  HAL_GPIO_WritePin(RED_2_GPIO_Port, RED_2_Pin, !red);
+	  HAL_GPIO_WritePin(GREEN_2_GPIO_Port, GREEN_2_Pin, !green);
+	  HAL_GPIO_WritePin(BLUE_2_GPIO_Port, BLUE_2_Pin, !blue);
+	  break;
+	case 3:
+	  HAL_GPIO_WritePin(RED_3_GPIO_Port, RED_3_Pin, !red);
+	  HAL_GPIO_WritePin(GREEN_3_GPIO_Port, GREEN_3_Pin, !green);
+	  HAL_GPIO_WritePin(BLUE_3_GPIO_Port, BLUE_3_Pin, !blue);
+	  break;
+	default:
+	  break;
+  }
+}
 
 /* USER CODE END 4 */
 
