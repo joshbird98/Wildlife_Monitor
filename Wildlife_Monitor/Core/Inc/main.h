@@ -55,6 +55,13 @@ void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
 
+void print(char _out[]);
+void println(char _out[]);
+void printuint32_t(uint32_t value);
+void printuint16_t(uint16_t value);
+void printint16_t(int16_t value);
+void printuint8_t(uint8_t value);
+
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
@@ -101,24 +108,24 @@ void Error_Handler(void);
 #define MIC_ACTIVE_GPIO_Port GPIOB
 #define CARD_Pin GPIO_PIN_7
 #define CARD_GPIO_Port GPIOC
-#define GREEN_3_Pin GPIO_PIN_3
-#define GREEN_3_GPIO_Port GPIOD
+#define BLUE_3_Pin GPIO_PIN_3
+#define BLUE_3_GPIO_Port GPIOD
 #define RED_3_Pin GPIO_PIN_4
 #define RED_3_GPIO_Port GPIOD
-#define BLUE_3_Pin GPIO_PIN_5
-#define BLUE_3_GPIO_Port GPIOD
-#define GREEN_2_Pin GPIO_PIN_7
-#define GREEN_2_GPIO_Port GPIOD
+#define GREEN_3_Pin GPIO_PIN_5
+#define GREEN_3_GPIO_Port GPIOD
+#define BLUE_2_Pin GPIO_PIN_7
+#define BLUE_2_GPIO_Port GPIOD
 #define RED_2_Pin GPIO_PIN_9
 #define RED_2_GPIO_Port GPIOG
-#define BLUE_2_Pin GPIO_PIN_10
-#define BLUE_2_GPIO_Port GPIOG
-#define GREEN_1_Pin GPIO_PIN_11
-#define GREEN_1_GPIO_Port GPIOG
+#define GREEN_2_Pin GPIO_PIN_10
+#define GREEN_2_GPIO_Port GPIOG
+#define BLUE_1_Pin GPIO_PIN_11
+#define BLUE_1_GPIO_Port GPIOG
 #define RED_1_Pin GPIO_PIN_12
 #define RED_1_GPIO_Port GPIOG
-#define BLUE_1_Pin GPIO_PIN_13
-#define BLUE_1_GPIO_Port GPIOG
+#define GREEN_1_Pin GPIO_PIN_13
+#define GREEN_1_GPIO_Port GPIOG
 /* USER CODE BEGIN Private defines */
 #define AUDIO_BUFFER_SECS 3
 #define EXT_PWR_DETECTED 	0b00000001
@@ -126,11 +133,18 @@ void Error_Handler(void);
 #define BATTERY_OVERCHRG	0b00000100
 #define CHARGER_FAULT 		0b00001000
 #define BATT_CHARGED		0b00010000
+#define VBAT_LOW			0b00100000
+#define VBAT_MISSING 		0b01000000
+
+#define TS30    ((uint16_t*)((uint32_t)0x1FFF75A8))
+#define TS130   ((uint16_t*)((uint32_t)0x1FFF75CA))
+
 
 struct PowerStatus {
 	uint8_t status_flag;
 	uint16_t ureg_millivolts;
 	uint16_t battery_millivolts;
+	uint16_t vbat_millivolts;
 };
 
 /* USER CODE END Private defines */

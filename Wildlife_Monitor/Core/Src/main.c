@@ -20,11 +20,9 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "fatfs.h"
-#include "usb_device.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "usbd_cdc_if.h"
 #include "string.h"
 #include "stdio.h"
 #include "mcp33131.h"
@@ -39,7 +37,6 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define ADC_BUFFER_LEN 3
 
 /* USER CODE END PD */
 
@@ -50,7 +47,6 @@
 
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
-DMA_HandleTypeDef hdma_adc1;
 
 COMP_HandleTypeDef hcomp1;
 
@@ -72,28 +68,23 @@ UART_HandleTypeDef huart1;
 /* USER CODE BEGIN PV */
 struct PowerStatus PowerStatus1;
 
-uint8_t usb_rxbuffer[64];
-uint8_t usb_txbuffer[64];
-uint16_t adc_buffer[ADC_BUFFER_LEN];
-
 
 //Audio capture - not yet tested
 // TIMER16 sets off an interrupt every 1/AUDIO_SAMPLE_RATE seconds.
 // On this interrupt, a function retrieves a 16-bit audio sample from
 // the external MCP33131 ADC, and stores it in the audio_buffer below.
-// Then the audio buffer location is incremented, before rolling back
+// Then the audio buffer location is incremented, maybe rolling back
 // to position zero. This buffer holds AUDIO_BUFFER_SECS seconds of audio.
-// when buffer location reaches fall or half-full, a flag is set
-uint8_t audio_buffer_flag = 0;
 uint32_t audio_buffer_location = 0;
 uint16_t audio_buffer[AUDIO_SAMPLE_RATE * AUDIO_BUFFER_SECS];
+// When buffer location reaches 50% or 100%, an interrupt sets a flag
+uint8_t audio_buffer_flag = 0;
 
 
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
-void PeriphCommonClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_COMP1_Init(void);
@@ -102,14 +93,20 @@ static void MX_SDMMC1_SD_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_CRC_Init(void);
-static void MX_DMA_Init(void);
 static void MX_RTC_Init(void);
 static void MX_TIM16_Init(void);
 static void MX_TIM17_Init(void);
 /* USER CODE BEGIN PFP */
-struct PowerStatus updatePowerStatus( struct PowerStatus powerstat);
+struct PowerStatus updatePowerStatus(struct PowerStatus powerstat);
 void write_audio_sample_sd(uint16_t *data);
 void led_rgb(uint8_t led, uint8_t colour);
+void light_show(uint16_t delay, uint8_t repeats);
+void ADC_Select_CH0 (void);
+void ADC_Select_CH1 (void);
+void ADC_Select_CHVBAT(void);
+void printPowerStatus(struct PowerStatus power_status);
+void startSleeping(void);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -139,9 +136,6 @@ int main(void)
   /* Configure the system clock */
   SystemClock_Config();
 
-/* Configure the peripherals common clocks */
-  PeriphCommonClock_Config();
-
   /* USER CODE BEGIN SysInit */
 
   /* USER CODE END SysInit */
@@ -156,8 +150,6 @@ int main(void)
   MX_USART1_UART_Init();
   MX_FATFS_Init();
   MX_CRC_Init();
-  MX_DMA_Init();
-  MX_USB_DEVICE_Init();
   MX_RTC_Init();
   MX_TIM16_Init();
   MX_TIM17_Init();
@@ -165,73 +157,40 @@ int main(void)
 
   //the following code is just intended as examples to show how some in-built or custom functions COULD be used.
   //feel free to change anything, and apologies for poor documentation, message me anytime for clarifications - JB
-  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buffer, ADC_BUFFER_LEN);
+
   HAL_TIM_Base_Start_IT(&htim16);
+  HAL_COMP_Start_IT(&hcomp1);
 
-  //Set the microphone gain
-  set_mic_gain(1000, hspi1); //not sure what a suitable gain value would be yet
+  light_show(200, 1);
+  println("Wildlife monitor has started up!");
 
-  //Demo LED colours on startup
-  led_rgb(1,'r');	//led 1 turns red
-  led_rgb(2,'y');	//led 2 turns yellow
-  led_rgb(3,'w');	//led 3 turns white
-  HAL_Delay(1000);
-  led_rgb(1,'g');	//led 1 turns green
-  led_rgb(2,'p');	//led 2 turns purple
-  led_rgb(3,'o');	//led 3 turns off
-  HAL_Delay(1000);
-  led_rgb(1,'b');	//led 1 turns blue
-  led_rgb(2,'c');	//led 2 turns cyan
-  led_rgb(3,'w');	//led 3 turns white
-  HAL_Delay(1000);
+  PowerStatus1 = updatePowerStatus(PowerStatus1);
+  printPowerStatus(PowerStatus1);
 
-  //Print out startup-message to USB
-  int str_len = sprintf((char*)usb_txbuffer, "Wildlife Monitor says hello over USB!\n");
-  CDC_Transmit_FS(usb_txbuffer, str_len);		//yes I know this throws a warning - it should be okay - JB
-  // note that I have set it up so received USB data ends up in usb_rxbuffer
-
-  updatePowerStatus(PowerStatus1);
-
-  //Print out battery voltage [millivolts] to USB
-  uint8_t msg_data[10];
-  str_len = sprintf((char*)msg_data, "%d", PowerStatus1.battery_millivolts);
-  CDC_Transmit_FS(msg_data, str_len);		//yes I know this throws a warning - it should be okay - JB
-
-  //just trying out SD stuff here
-  Mount_SD("/");
-  Format_SD();
-  Create_File("FILE1.TXT");
-  Unmount_SD("/");
+  set_mic_gain(1000, hspi1); // initialises the microphone gain to 1000
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+
+  uint32_t time1 = HAL_GetTick();	// two variables for tracking time, used for some non-blocking periodic events in main()
+  uint32_t time2 = time1;
+
   while (1)
   {
-
-	//Check audio buffer for new sample
-	if (audio_buffer_flag == 1) {	//buffer is half full with new data
-		audio_buffer_flag = 0;
-		// determing start location of audio sample in buffer (either 0 or full/2)
-		uint32_t sample_start_location = 0;
-		if (audio_buffer_location < (AUDIO_SAMPLE_RATE * AUDIO_BUFFER_SECS / 2)) {
-			sample_start_location = (AUDIO_SAMPLE_RATE*AUDIO_BUFFER_SECS / 2);
-		}
-		//complete sample is breifly stored in memory from...
-		//audio_buffer[sample_start_location] to audio_buffer[sample_start_location+(AUDIO_SAMPLE_RATE * AUDIO_BUFFER_SECS / 2)]
-
-		//save newest audio sample to SD card
-		write_audio_sample_sd(&audio_buffer[sample_start_location]);
+	uint32_t new_time = HAL_GetTick();
+	if ((new_time - time1) > 500)		// every 500 ms, flash the lights like a heartbeat
+	{
+		time1 = new_time;	// update time of last heartbeat
+		light_show(5, 1);   // heartbeat!
+	}
+	if ((new_time - time2) > 5000)		// every 5000ms, send the device to sleep (wakes up on audio detection)
+	{
+		time2 = new_time;	// update time
+		startSleeping();	// time for bed!
 	}
 
-	//just trying out SD stuff here
-	uint8_t indx = 42;
-	char sd_writebuffer[100];
-	Mount_SD("/");
-	sprintf(sd_writebuffer, "Hello ---> %d\n", indx);
-	Update_File("FILE1.TXT", sd_writebuffer);
-	Unmount_SD("/");
 
     /* USER CODE END WHILE */
 
@@ -255,16 +214,11 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  /** Configure LSE Drive Capability
-  */
-  HAL_PWR_EnableBkUpAccess();
-  __HAL_RCC_LSEDRIVE_CONFIG(RCC_LSEDRIVE_LOW);
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_LSI
-                              |RCC_OSCILLATORTYPE_LSE|RCC_OSCILLATORTYPE_MSI;
-  RCC_OscInitStruct.LSEState = RCC_LSE_ON;
+                              |RCC_OSCILLATORTYPE_MSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.LSIState = RCC_LSI_ON;
@@ -295,35 +249,6 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  /** Enable MSI Auto calibration
-  */
-  HAL_RCCEx_EnableMSIPLLMode();
-}
-
-/**
-  * @brief Peripherals Common Clock Configuration
-  * @retval None
-  */
-void PeriphCommonClock_Config(void)
-{
-  RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
-
-  /** Initializes the peripherals clock
-  */
-  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USB|RCC_PERIPHCLK_ADC;
-  PeriphClkInit.AdcClockSelection = RCC_ADCCLKSOURCE_PLLSAI1;
-  PeriphClkInit.UsbClockSelection = RCC_USBCLKSOURCE_PLLSAI1;
-  PeriphClkInit.PLLSAI1.PLLSAI1Source = RCC_PLLSOURCE_MSI;
-  PeriphClkInit.PLLSAI1.PLLSAI1M = 6;
-  PeriphClkInit.PLLSAI1.PLLSAI1N = 24;
-  PeriphClkInit.PLLSAI1.PLLSAI1P = RCC_PLLP_DIV2;
-  PeriphClkInit.PLLSAI1.PLLSAI1Q = RCC_PLLQ_DIV4;
-  PeriphClkInit.PLLSAI1.PLLSAI1R = RCC_PLLR_DIV6;
-  PeriphClkInit.PLLSAI1.PLLSAI1ClockOut = RCC_PLLSAI1_48M2CLK|RCC_PLLSAI1_ADC1CLK;
-  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
-  {
-    Error_Handler();
-  }
 }
 
 /**
@@ -349,15 +274,15 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-  hadc1.Init.ScanConvMode = ADC_SCAN_ENABLE;
+  hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
   hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
   hadc1.Init.LowPowerAutoWait = DISABLE;
   hadc1.Init.ContinuousConvMode = ENABLE;
-  hadc1.Init.NbrOfConversion = 3;
+  hadc1.Init.NbrOfConversion = 1;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
-  hadc1.Init.DMAContinuousRequests = ENABLE;
+  hadc1.Init.DMAContinuousRequests = DISABLE;
   hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
   hadc1.Init.OversamplingMode = DISABLE;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
@@ -366,28 +291,12 @@ static void MX_ADC1_Init(void)
   }
   /** Configure Regular Channel
   */
-  sConfig.Channel = ADC_CHANNEL_3;
+  sConfig.Channel = ADC_CHANNEL_1;
   sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_2CYCLES_5;
+  sConfig.SamplingTime = ADC_SAMPLETIME_640CYCLES_5;
   sConfig.SingleDiff = ADC_SINGLE_ENDED;
   sConfig.OffsetNumber = ADC_OFFSET_NONE;
   sConfig.Offset = 0;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /** Configure Regular Channel
-  */
-  sConfig.Channel = ADC_CHANNEL_1;
-  sConfig.Rank = ADC_REGULAR_RANK_2;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /** Configure Regular Channel
-  */
-  sConfig.Channel = ADC_CHANNEL_2;
-  sConfig.Rank = ADC_REGULAR_RANK_3;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -745,23 +654,6 @@ static void MX_USART1_UART_Init(void)
 }
 
 /**
-  * Enable DMA controller clock
-  */
-static void MX_DMA_Init(void)
-{
-
-  /* DMA controller clock enable */
-  __HAL_RCC_DMAMUX1_CLK_ENABLE();
-  __HAL_RCC_DMA1_CLK_ENABLE();
-
-  /* DMA interrupt init */
-  /* DMA1_Channel1_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
-
-}
-
-/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -800,11 +692,11 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOB, RADIO_RST_Pin|CS_RADIO_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOD, GREEN_3_Pin|RED_3_Pin|BLUE_3_Pin|GREEN_2_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GPIOD, BLUE_3_Pin|RED_3_Pin|GREEN_3_Pin|BLUE_2_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOG, RED_2_Pin|BLUE_2_Pin|GREEN_1_Pin|RED_1_Pin
-                          |BLUE_1_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GPIOG, RED_2_Pin|GREEN_2_Pin|BLUE_1_Pin|RED_1_Pin
+                          |GREEN_1_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pins : CHRG_PG_Pin CHRG_STAT2_Pin CHRG_STAT1_Pin */
   GPIO_InitStruct.Pin = CHRG_PG_Pin|CHRG_STAT2_Pin|CHRG_STAT1_Pin;
@@ -865,17 +757,25 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : GREEN_3_Pin RED_3_Pin BLUE_3_Pin GREEN_2_Pin */
-  GPIO_InitStruct.Pin = GREEN_3_Pin|RED_3_Pin|BLUE_3_Pin|GREEN_2_Pin;
+  /*Configure GPIO pins : PA11 PA12 */
+  GPIO_InitStruct.Pin = GPIO_PIN_11|GPIO_PIN_12;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  GPIO_InitStruct.Alternate = GPIO_AF10_OTG_FS;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : BLUE_3_Pin RED_3_Pin GREEN_3_Pin BLUE_2_Pin */
+  GPIO_InitStruct.Pin = BLUE_3_Pin|RED_3_Pin|GREEN_3_Pin|BLUE_2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : RED_2_Pin BLUE_2_Pin GREEN_1_Pin RED_1_Pin
-                           BLUE_1_Pin */
-  GPIO_InitStruct.Pin = RED_2_Pin|BLUE_2_Pin|GREEN_1_Pin|RED_1_Pin
-                          |BLUE_1_Pin;
+  /*Configure GPIO pins : RED_2_Pin GREEN_2_Pin BLUE_1_Pin RED_1_Pin
+                           GREEN_1_Pin */
+  GPIO_InitStruct.Pin = RED_2_Pin|GREEN_2_Pin|BLUE_1_Pin|RED_1_Pin
+                          |GREEN_1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -904,14 +804,63 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   }
 }
 
-// Function updates the power status structure, with newest voltages and status's
-struct PowerStatus updatePowerStatus( struct PowerStatus powerstat)
+// when the audio input rises above 3/4Ref, this interrupt function runs
+// If microphone gain is set to maximum, the device could sleep until this interrupt detects noise
+void HAL_COMP_TriggerCallback(COMP_HandleTypeDef *hcomp)
 {
-	//adc_buffer is continually being filled via DMA, so just access the correct index for latest ADC reading...
-	powerstat.ureg_millivolts 	 = adc_buffer[1] * 1.611721; 	//scales from bits into millivolts
-	powerstat.battery_millivolts = adc_buffer[2] * 1.611721;
+  if (hcomp == &hcomp1)
+  {
+	// comp interrupt mode will only have been activated if device has been sent to sleep
+	// therefore, turn on other interrupts and tick etc, then disable comp interrupt mode.
+    HAL_ResumeTick();
+    HAL_TIM_Base_Stop(&htim16);
+    hcomp1.Init.TriggerMode = COMP_TRIGGERMODE_NONE;
+    HAL_COMP_Init(&hcomp1);
+  }
+}
 
-	if (powerstat.ureg_millivolts > (powerstat.battery_millivolts + 200)) 			//solar or usb is plugged in
+// this sends the device to a low-power sleep mode to conserve battery
+// it wakes up when the microphone detects noise, via a comparator interrupt
+// This could be used when no audio is detected for a while
+void startSleeping(void)
+{
+  set_mic_gain(2000, hspi1);			// set microphone gain (determines level of noise needed to wake device up)
+  HAL_TIM_Base_Stop(&htim16);	// turn off timer interrupts
+  HAL_SuspendTick();			// turn off systick interrupt
+  hcomp1.Init.TriggerMode = COMP_TRIGGERMODE_IT_RISING;	//setup comparator for interrupt wakeup
+  HAL_COMP_Init(&hcomp1);		// turn on comparator
+  HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);	//go to sleep
+  //Interrupt from comp will wake CPU, and should handle turning back on ticks and timer interrupt
+}
+// Function updates the power status structure, with newest voltages and status's
+// Note that I don't think VBAT reading is actually correct... will need to check ADC config
+struct PowerStatus updatePowerStatus(struct PowerStatus powerstat)
+{
+	//get adc results from three separate channels...
+	uint16_t adc_result;
+	ADC_Select_CH0();
+    HAL_ADC_Start(&hadc1);
+    HAL_ADC_PollForConversion(&hadc1, 1000);
+    adc_result = HAL_ADC_GetValue(&hadc1);
+    powerstat.battery_millivolts = adc_result * 1.611721;
+    HAL_ADC_Stop(&hadc1);
+
+    ADC_Select_CH1();
+    HAL_ADC_Start(&hadc1);
+    HAL_ADC_PollForConversion(&hadc1, 1000);
+    adc_result = HAL_ADC_GetValue(&hadc1);
+    powerstat.ureg_millivolts = adc_result * 1.611721;
+    HAL_ADC_Stop(&hadc1);
+
+    ADC_Select_CHVBAT();
+    HAL_ADC_Start(&hadc1);
+    HAL_ADC_PollForConversion(&hadc1, 1000);
+    adc_result = HAL_ADC_GetValue(&hadc1);
+    powerstat.vbat_millivolts = adc_result * 1.611721;
+    HAL_ADC_Stop(&hadc1);
+
+    // interpret analog voltages, and set flags accordingly
+	if (powerstat.ureg_millivolts > (powerstat.battery_millivolts + 200)) 	//solar or usb is plugged in
 		powerstat.status_flag |= EXT_PWR_DETECTED;
 	else
 		powerstat.status_flag &= ~EXT_PWR_DETECTED;
@@ -926,11 +875,25 @@ struct PowerStatus updatePowerStatus( struct PowerStatus powerstat)
 	else
 		powerstat.status_flag &= ~BATTERY_OVERCHRG;
 
-	// now read from MCP73871 outputs for charger-status
+	if (powerstat.vbat_millivolts < 2700)
+		powerstat.status_flag |= VBAT_LOW;									//backup cell for RTC is low!
+	else
+		powerstat.status_flag &= ~VBAT_LOW;
+
+	if (powerstat.vbat_millivolts < 1800)									//backup cell for RTC is not detected/inserted
+	{
+		powerstat.status_flag |= VBAT_MISSING;
+		powerstat.status_flag &= ~VBAT_LOW;
+	}
+	else
+		powerstat.status_flag &= ~VBAT_MISSING;
+
+	// now read from MCP73871 digital outputs for charger-status
 	uint8_t chrg_stat1 = HAL_GPIO_ReadPin(CHRG_STAT1_GPIO_Port, CHRG_STAT1_Pin);
 	uint8_t chrg_stat2 = HAL_GPIO_ReadPin(CHRG_STAT2_GPIO_Port, CHRG_STAT2_Pin);
 	uint8_t chrg_pg    = HAL_GPIO_ReadPin(CHRG_PG_GPIO_Port, CHRG_PG_Pin);
 
+	// interpret the charger status pins, and set flags accordingly
 	if ((chrg_stat2 == 0) && (chrg_pg == 0))
 	{
 		if (chrg_stat1 == 0)
@@ -948,7 +911,7 @@ struct PowerStatus updatePowerStatus( struct PowerStatus powerstat)
 	return powerstat;
 }
 
-// Writes in half the audio buffer to the SD in a file with timestamped name
+// Writes in half the audio buffer to the SD in a file with timestamped name - UNTESTED
 void write_audio_sample_sd(uint16_t *data)
 {
 	// read the RTC registers inside the STM32
@@ -970,8 +933,10 @@ void write_audio_sample_sd(uint16_t *data)
 }
 
 // Set the led (1, 2 or 3) to a specific colour.
-//Available colours are (r)ed, (g)reen, (b)lue, (y)ellow, (p)urple, (c)yan, (w)hite or (o)ff.
-void led_rgb(uint8_t led, uint8_t colour) {
+// Available colours are (r)ed, (g)reen, (b)lue, (y)ellow, (p)urple, (c)yan, (w)hite or (o)ff.
+// Use as led_rgb(2, 'r');
+void led_rgb(uint8_t led, uint8_t colour)
+{
   uint8_t red = 0;
   uint8_t green = 0;
   uint8_t blue = 0;
@@ -1031,6 +996,181 @@ void led_rgb(uint8_t led, uint8_t colour) {
   }
 }
 
+// Flashes all the RGB lights. Use as light_show(100, 5);
+void light_show(uint16_t delay, uint8_t repeats)
+{
+  while (repeats > 0)
+  {
+	led_rgb(1,'p');
+	led_rgb(2,'o');
+	led_rgb(3,'o');
+	HAL_Delay(delay);
+	led_rgb(1,'r');
+	led_rgb(2,'p');
+	led_rgb(3,'o');
+	HAL_Delay(delay);
+	led_rgb(1,'y');
+	led_rgb(2,'r');
+	led_rgb(3,'p');
+	HAL_Delay(delay);
+	led_rgb(1,'g');
+	led_rgb(2,'y');
+	led_rgb(3,'r');
+	HAL_Delay(delay);
+	led_rgb(1,'b');
+	led_rgb(2,'g');
+	led_rgb(3,'y');
+	HAL_Delay(delay);
+	led_rgb(1,'c');
+	led_rgb(2,'b');
+	led_rgb(3,'g');
+	HAL_Delay(delay);
+	led_rgb(1,'w');
+	led_rgb(2,'c');
+	led_rgb(3,'b');
+	HAL_Delay(delay);
+	led_rgb(1,'o');
+	led_rgb(2,'w');
+	led_rgb(3,'c');
+	HAL_Delay(delay);
+	led_rgb(1,'o');
+	led_rgb(2,'o');
+	led_rgb(3,'w');
+	HAL_Delay(delay);
+	led_rgb(1,'o');
+    led_rgb(2,'o');
+	led_rgb(3,'o');
+	HAL_Delay(delay);
+	repeats -= 1;
+  }
+}
+
+// Prints out a string to serial. Use as print("Hello, world.")
+void print(char _out[])
+{
+  HAL_UART_Transmit(&huart1, (uint8_t *) _out, strlen(_out), 10);
+}
+
+// Prints out a string to serial, and starts a newline. Use as print("Hello!");
+void println(char _out[])
+{
+  HAL_UART_Transmit(&huart1, (uint8_t *) _out, strlen(_out), 10);
+  char newline[2] = "\r\n";
+  HAL_UART_Transmit(&huart1, (uint8_t *) newline, 2, 10);
+}
+
+// Prints out a uint16_t type to serial.
+// uint16_t x = 3454242; printuint16_t(x);
+void printuint32_t(uint32_t value)
+{
+  char str[10];
+  sprintf(str, "%lu", value);
+  print(str);
+}
+
+// Prints out a uint16_t type to serial.
+// uint16_t x = 4242; printuint16_t(x);
+void printuint16_t(uint16_t value)
+{
+  char str[10];
+  sprintf(str, "%u", value);
+  print(str);
+}
+
+// Prints out a uint16_t type to serial.
+// int16_t x = -4242; printint16_t(x);
+void printint16_t(int16_t value)
+{
+  char str[10];
+  sprintf(str, "%d", value);
+  print(str);
+}
+
+// Prints out a uint8_t type to serial
+// uint8_t x = 42; printuint16_t(x);
+void printuint8_t(uint8_t value)
+{
+  char str[10];
+  sprintf(str, "%u", value);
+  print(str);
+}
+
+// Set the ADC Channel
+void ADC_Select_CH0 (void)
+{
+  ADC_ChannelConfTypeDef sConfig = {0};
+  sConfig.Channel = ADC_CHANNEL_0;
+  sConfig.Rank = 1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_640CYCLES_5;
+  sConfig.SingleDiff = ADC_SINGLE_ENDED;
+  sConfig.OffsetNumber = ADC_OFFSET_NONE;
+  sConfig.Offset = 0;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+// Set the ADC Channel
+void ADC_Select_CH1 (void)
+{
+  ADC_ChannelConfTypeDef sConfig = {0};
+  sConfig.Channel = ADC_CHANNEL_1;
+  sConfig.Rank = 1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_640CYCLES_5;
+  sConfig.SingleDiff = ADC_SINGLE_ENDED;
+  sConfig.OffsetNumber = ADC_OFFSET_NONE;
+  sConfig.Offset = 0;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+// Set the ADC Channel
+void ADC_Select_CHVBAT (void)
+{
+  ADC_ChannelConfTypeDef sConfig = {0};
+  sConfig.Channel = ADC_CHANNEL_VBAT;
+  sConfig.Rank = 1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_640CYCLES_5;
+  sConfig.SingleDiff = ADC_SINGLE_ENDED;
+  sConfig.OffsetNumber = ADC_OFFSET_NONE;
+  sConfig.Offset = 0;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+// Prints out a bunch of information over serial.
+// Shows power voltages and other power information.
+void printPowerStatus(struct PowerStatus power_status)
+{
+	println("Power Info: ");
+	print("BATTERY VOLTAGE: ");
+	printuint16_t(power_status.battery_millivolts);
+	println(" mV");
+    print("UNREGULATED VOLTAGE: ");
+    printuint16_t(power_status.ureg_millivolts);
+    println(" mV");
+    print("BACKUP BATTERY VOLTAGE: ");
+    printuint16_t(power_status.vbat_millivolts);
+    println(" mV");
+    print("STATUS: ");
+    printuint8_t(power_status.status_flag);
+    println("");
+    if ((power_status.status_flag & EXT_PWR_DETECTED) == EXT_PWR_DETECTED) println("External power connected.");
+    if ((power_status.status_flag & BATTERY_LOW) == BATTERY_LOW) println("Battery power low.");
+    if ((power_status.status_flag & BATTERY_OVERCHRG) == BATTERY_OVERCHRG) println("Battery overcharged... run!");
+    if ((power_status.status_flag & CHARGER_FAULT) == CHARGER_FAULT) println("Charger fault.");
+    if ((power_status.status_flag & BATT_CHARGED) == BATT_CHARGED) println("Battery fully charged.");
+    if ((power_status.status_flag & VBAT_LOW) == VBAT_LOW) println("Backup battery power low.");
+    if ((power_status.status_flag & VBAT_MISSING) == VBAT_MISSING) println("Backup battery missing.");
+
+    println("");
+}
+
 /* USER CODE END 4 */
 
 /**
@@ -1044,6 +1184,14 @@ void Error_Handler(void)
   __disable_irq();
   while (1)
   {
+	  led_rgb(1, 'r');
+	  led_rgb(2, 'r');
+	  led_rgb(3, 'r');
+	  HAL_Delay(250);
+	  led_rgb(1, 'o');
+	  led_rgb(2, 'o');
+	  led_rgb(3, 'o');
+	  HAL_Delay(250);
   }
   /* USER CODE END Error_Handler_Debug */
 }
@@ -1066,3 +1214,41 @@ void assert_failed(uint8_t *file, uint32_t line)
 #endif /* USE_FULL_ASSERT */
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
+
+//just trying out SD stuff here
+//Mount_SD("/");
+//Format_SD();
+//Create_File("FILE1.TXT");
+//Unmount_SD("/");
+//uint8_t indx = 42;
+//char sd_writebuffer[100];
+//Mount_SD("/");
+//sprintf(sd_writebuffer, "Hello ---> %d\n", indx);
+//Update_File("FILE1.TXT", sd_writebuffer);
+//Unmount_SD("/");*/
+
+/* TESTING THE AUDIO BUFFER SYSTEM - seems okay?
+//Check audio buffer for new sample
+	if (audio_buffer_flag == 1) {	//buffer is half full with new data
+		audio_buffer_flag = 0;
+		// determining start location of audio sample in buffer (either 0 or full/2)
+		uint32_t sample_start_location = 0;
+		if (audio_buffer_location < (AUDIO_SAMPLE_RATE * AUDIO_BUFFER_SECS / 2)) {
+			sample_start_location = (AUDIO_SAMPLE_RATE*AUDIO_BUFFER_SECS / 2);
+		}
+		//complete sample is briefly stored in memory from...
+		//audio_buffer[sample_start_location] to audio_buffer[sample_start_location+(AUDIO_SAMPLE_RATE * AUDIO_BUFFER_SECS / 2)]
+
+		//save newest audio sample to SD card
+		//write_audio_sample_sd(&audio_buffer[sample_start_location]);
+		println("AUDIO CAPTURE... ");
+		for (uint8_t i = 0; i < 10; i++)
+		{
+			print("audio_buffer[");
+			printuint32_t(sample_start_location + i);
+			print("] = ");
+			printuint16_t(audio_buffer[sample_start_location + i]);
+			println("");
+		}
+		println("");
+	}*/

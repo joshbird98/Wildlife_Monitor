@@ -12,7 +12,7 @@
 #include "string.h"
 #include "stdio.h"
 #include "fatfs.h"
-#include "usbd_cdc_if.h"
+#include "main.h"
 
 
 /* mounts the sd card*/
