@@ -28,6 +28,7 @@
 #include "mcp33131.h"
 #include "mcp41010.h"
 #include "File_Handling.h"
+#include "RadioLib.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -192,6 +193,75 @@ int main(void)
 	}
 
 
+	//--------------------------------------------------------------------------------------- IOT stuff
+	 	/* Trigger transmission on button press */
+		/* if(digitalRead(BTNPIN)==1 && msgSent == 0){
+		 	 radio.setDio1Action(setFlagT);
+		 	 transmittedFlag = true;
+		 	 msgSent =1;
+		 	 msgRec=0;
+	 	 }
+	 	 else if(digitalRead(BTNPIN)==0 && msgRec ==0){
+	 		 radio.setDio1Action(setFlagR);
+	 		 radio.startReceive();
+	 		 msgSent=0;
+	 		 msgRec =1;
+	  	  }*/
+
+	//----------------------------------------------------------------------------
+	  if(transmittedFlag == true) {
+	    enableInterrupt = false;
+	    String message = (String)x++ +",hh:mm:ss,Location\n";  //test message
+	    transmittedFlag = false;
+
+	    Serial.print(F("[SX1262] Sending packet:...\n"));
+	    Serial.print(message);
+
+	    transmissionState = radio.startTransmit(message);
+	    if (transmissionState == ERR_NONE) {
+	      Serial.println(F("\t...transmission finished!"));
+	    delay(1000);
+
+	    } else {
+	      Serial.print(F("\t...transmission failed, code "));
+	      Serial.println(transmissionState);
+	    }
+	    Savedmsgs="";
+	    enableInterrupt = true;
+	  }
+	//---------------------------------------------------------------------
+	  if(receivedFlag) {
+	    enableInterrupt = false;
+	    receivedFlag = false;
+	    String str;
+
+	    int counter = 0;
+	    int change = 0;
+	    int len =0;
+	    int state = radio.readData(str);    //Puts data into str from input signal
+
+	    Serial.println(str.length());
+
+	    }
+	    if (state == ERR_NONE) {            //if no error
+	      Savedmsgs+=(str);					//adding new message to end of string
+	      Serial.print(F("[SX1262] Saved Data:\n"));
+	      Serial.println(Savedmsgs);
+	    } else if (state == ERR_CRC_MISMATCH) {
+	      Serial.println(F("CRC error!"));
+
+	    } else {
+	      Serial.print(F("failed, code "));
+	      Serial.println(state);
+
+	    }
+	    radio.startReceive();
+	    enableInterrupt = true;
+	  }
+	//------------------------------------------------------------------------------------------
+
+	  }
+	}
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
