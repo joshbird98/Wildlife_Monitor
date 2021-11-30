@@ -87,7 +87,7 @@ Module::Module(RADIOLIB_PIN_TYPE cs, RADIOLIB_PIN_TYPE irq, RADIOLIB_PIN_TYPE rs
 Module::Module(const Module& mod) {
   *this = mod;
 }
-
+/*
 Module& Module::operator=(const Module& mod) {
   this->ModuleSerial = mod.ModuleSerial;
   this->baudrate = mod.baudrate;
@@ -103,7 +103,7 @@ Module& Module::operator=(const Module& mod) {
   this->_spi = mod.getSpi();
 
   return(*this);
-}
+}*/
 
 void Module::init(uint8_t interface) {
   // select interface
@@ -126,7 +126,7 @@ void Module::init(uint8_t interface) {
       break;
   }
 }
-
+/*
 void Module::term(uint8_t interface) {
   // stop hardware interfaces (if they were initialized by the library)
   if(!_initInterface) {
@@ -148,16 +148,16 @@ void Module::ATemptyBuffer() {
   while(ModuleSerial->available() > 0) {
     ModuleSerial->read();
   }
-}
+}*/
 
-bool Module::ATsendCommand(const char* cmd) {
+/*bool Module::ATsendCommand(const char* cmd) {
   ATemptyBuffer();
   ModuleSerial->print(cmd);
   ModuleSerial->print(AtLineFeed);
   return(ATgetResponse());
-}
+}*/
 
-bool Module::ATsendData(uint8_t* data, uint32_t len) {
+/*bool Module::ATsendData(uint8_t* data, uint32_t len) {
   ATemptyBuffer();
   for(uint32_t i = 0; i < len; i++) {
     ModuleSerial->write(data[i]);
@@ -165,9 +165,9 @@ bool Module::ATsendData(uint8_t* data, uint32_t len) {
 
   ModuleSerial->print(AtLineFeed);
   return(ATgetResponse());
-}
+}*/
 
-bool Module::ATgetResponse() {
+/*bool Module::ATgetResponse() {
   char data[128];
   char* dataPtr = data;
   uint32_t start = Module::millis();
@@ -189,7 +189,7 @@ bool Module::ATgetResponse() {
   }
   RADIOLIB_VERBOSE_PRINTLN();
   return(false);
-}
+}*/
 
 int16_t Module::SPIgetRegValue(uint8_t reg, uint8_t msb, uint8_t lsb) {
   if((msb > 7) || (lsb > 7) || (lsb > msb)) {

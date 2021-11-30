@@ -1,11 +1,11 @@
 #if !defined(_RADIOLIB_SX1262_H)
 #define _RADIOLIB_SX1262_H
 
-#include "TypeDef.h"
+#include "../../TypeDef.h"
 
 #if !defined(RADIOLIB_EXCLUDE_SX126X)
 
-#include "Module.h"
+#include "../../Module.h"
 #include "SX126x.h"
 
 //SX126X_CMD_SET_PA_CONFIG

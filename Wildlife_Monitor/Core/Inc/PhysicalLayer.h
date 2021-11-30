@@ -1,8 +1,8 @@
 #ifndef _RADIOLIB_PHYSICAL_LAYER_H
 #define _RADIOLIB_PHYSICAL_LAYER_H
 
-#include "TypeDef.h"
-#include "Module.h"
+#include "../../TypeDef.h"
+#include "../../Module.h"
 
 /*!
   \class PhysicalLayer

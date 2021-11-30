@@ -61,26 +61,16 @@
   #warning "RadioLib might not be compatible with this Arduino board - check supported platforms at https://github.com/jgromes/RadioLib!"
 #endif
 
-
-#include "SX1261.h"
-#include "SX1262.h"
-#include "SX1268.h"
+#include "modules/SX126x/SX1262.h"
 
 
 // physical layer protocols
-#include "PhysicalLayer.h"
-/*#include "protocols/AFSK/AFSK.h"
-#include "protocols/AX25/AX25.h"
-#include "protocols/Hellschreiber/Hellschreiber.h"
-#include "protocols/Morse/Morse.h"
-#include "protocols/RTTY/RTTY.h"
-#include "protocols/SSTV/SSTV.h"
-#include "protocols/FSK4/FSK4.h"
+#include "protocols/PhysicalLayer/PhysicalLayer.h"
+
 
 // transport layer protocols
 #include "protocols/TransportLayer/TransportLayer.h"
-#include "protocols/HTTP/HTTP.h"
-#include "protocols/MQTT/MQTT.h"*/
+
 
 // only create Radio class when using RadioShield
 #ifdef RADIOLIB_RADIOSHIELD

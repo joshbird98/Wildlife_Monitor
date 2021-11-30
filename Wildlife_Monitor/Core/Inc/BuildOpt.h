@@ -1,7 +1,11 @@
 #if !defined(_RADIOLIB_BUILD_OPTIONS_H)
 #define _RADIOLIB_BUILD_OPTIONS_H
 
-
+#if ARDUINO >= 100
+  #include "Arduino.h"
+#else
+  #error "Unsupported Arduino version (< 1.0.0)"
+#endif
 
 /*
  * Platform-specific configuration.

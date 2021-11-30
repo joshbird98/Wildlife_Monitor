@@ -1,5 +1,5 @@
 #include "ISerial.h"
-
+/*
 ISerial::ISerial(Module* mod) {
   _mod = mod;
 }
@@ -75,11 +75,11 @@ size_t ISerial::print(unsigned long n, int base) {
 size_t ISerial::print(double n, int digits) {
   return(_mod->ModuleSerial->print(n, digits));
 }
-
-size_t ISerial::print(const Printable& x) {
+*/
+/*size_t ISerial::print(const Printable& x) {
   return(_mod->ModuleSerial->print(x));
-}
-
+}*/
+/*
 #if !defined(ARDUINO_ARCH_MEGAAVR)
 size_t ISerial::println(const __FlashStringHelper *ifsh) {
   return(_mod->ModuleSerial->println(ifsh));
@@ -121,11 +121,12 @@ size_t ISerial::println(unsigned long n, int base) {
 size_t ISerial::println(double n, int digits) {
   return(_mod->ModuleSerial->println(n, digits));
 }
-
-size_t ISerial::println(const Printable& x) {
+*/
+/*size_t ISerial::println(const Printable& x) {
   return(_mod->ModuleSerial->println(x));
-}
-
+}*/
+/*
 size_t ISerial::println(void) {
   return(_mod->ModuleSerial->println());
 }
+*/

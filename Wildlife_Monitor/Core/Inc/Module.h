@@ -3,9 +3,9 @@
 
 #include "TypeDef.h"
 
-
+#include <SPI.h>
 #ifndef RADIOLIB_SOFTWARE_SERIAL_UNSUPPORTED
-//#include <SoftwareSerial.h>
+#include <SoftwareSerial.h>
 #endif
 
 /*!
