@@ -15,7 +15,7 @@
 #define RECEIVEMODE 0
 #define TRUE 1
 #define FALSE 0
-
+#include "main.h"
 
 void waitBusy(){
   while (HAL_GPIO_ReadPin(GPIOC,RADIO_BUSY_Pin)== 15)
@@ -28,11 +28,11 @@ uint8_t* SPItransferCmd(uint8_t cmd, uint8_t* dataOut, uint8_t* dataIn, uint8_t 
 waitBusy();
 HAL_GPIO_WritePin( GPIOB, CS_RADIO_Pin, GPIO_PIN_RESET);
 if (cmd==SPIWrite && dataOut!=NULL)
-	HAL_SPI_Transmit(SPI1, dataOut, numBytes,100);
+	HAL_SPI_Transmit(&hspi1, dataOut, numBytes,100);
 
 
 if (cmd==SPIRead && dataIn!=NULL){
-	HAL_SPI_TransmitReceive(SPI1, dataOut, dataIn, numBytes, 100);
+	HAL_SPI_TransmitReceive(&hspi1, dataOut, dataIn, numBytes, 100);
 
 }
 //Serial.print(dataOut[0]);
@@ -179,15 +179,15 @@ void getBufferstat(uint8_t* bffr){
   bffr[1]-=1;
 }
 
-void readBuffer(char *recMessage,uint8_t len,uint8_t start){
+void readBuffer(uint8_t *recMessage,uint8_t len,uint8_t start){
   waitBusy();
   HAL_GPIO_WritePin( GPIOB, CS_RADIO_Pin, GPIO_PIN_RESET);
   /*SPI.transfer(0x1E);
   SPI.transfer(start);
   SPI.transfer(0x00);*/
   uint8_t data[]={0x1e,start,0x00};
-  HAL_SPI_Transmit(SPI1, data, 3,100);
-  HAL_SPI_Receive(SPI1, recMessage, len, 100);
+  HAL_SPI_Transmit(&hspi1, data, 3,100);
+  HAL_SPI_Receive(&hspi1, recMessage, len, 100);
   /*for(int i =0;i<len;i++)
     recMessage[i]=SPI.transfer(0x00);*/
   HAL_GPIO_WritePin( GPIOB, CS_RADIO_Pin, GPIO_PIN_RESET);
@@ -195,10 +195,10 @@ void readBuffer(char *recMessage,uint8_t len,uint8_t start){
 
 void writePayload(char* payload){
   uint8_t data[sizeof payload +2];
-  data[0]==0x0E;
-  data[1]==0x00;
+  data[0]=0x0E;
+  data[1]=0x00;
   for(int i =0; i<sizeof payload;i++)
-    data[i+2] == payload[i];
+    data[i+2] = payload[i];
   SPItransferCmd(SPIWrite,data,NULL,3);
 }
 

@@ -256,11 +256,11 @@ int main(void)
 	  //ReadPayload
 	    uint8_t Buffer[3];
 	    getBufferstat(Buffer);
-	    char recMessage[Buffer[1]];
+	    uint8_t recMessage[Buffer[1]];
 	    readBuffer(recMessage,Buffer[1],Buffer[2]);
 	  //Print payload
-	    for(int i =0;i<Buffer[1];i++)
-	      print(recMessage[i]);
+	    for(int i = 3;i<Buffer[i-1];i++)
+	    	printuint8_t(recMessage[i]);
 	    print("\n");
 	  }
 
