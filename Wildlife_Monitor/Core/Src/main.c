@@ -28,7 +28,7 @@
 #include "mcp33131.h"
 #include "mcp41010.h"
 #include "File_Handling.h"
-#include "RadioLib.h"
+#include "RadioCommands.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -107,12 +107,19 @@ void ADC_Select_CH1 (void);
 void ADC_Select_CHVBAT(void);
 void printPowerStatus(struct PowerStatus power_status);
 void startSleeping(void);
-
+void setFlagT(void);
+void setFlagR(void);
+void setTx(void);
+void setRx(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+volatile int transmittedFlag = FALSE;
+volatile int receivedFlag = TRUE;
+volatile int enableInterrupt = TRUE;
+int RadioMode=RECEIVEMODE;
+int EnableRadio=TRUE;
 /* USER CODE END 0 */
 
 /**
@@ -191,83 +198,104 @@ int main(void)
 		time2 = new_time;	// update time
 		startSleeping();	// time for bed!
 	}
+	//------------------------------------------------------------------------------------------ IOT Stuff Start
+	if ((EnableRadio)){
+	  int mode;
+	  int transmitTimer = HAL_GetTick();
+	  mode=RECEIVEMODE;						//Defaults to Receiving mode
+	  setStandby();
 
-
-	//--------------------------------------------------------------------------------------- IOT stuff
-	 	/* Trigger transmission on button press */
-		/* if(digitalRead(BTNPIN)==1 && msgSent == 0){
-		 	 radio.setDio1Action(setFlagT);
-		 	 transmittedFlag = true;
-		 	 msgSent =1;
-		 	 msgRec=0;
-	 	 }
-	 	 else if(digitalRead(BTNPIN)==0 && msgRec ==0){
-	 		 radio.setDio1Action(setFlagR);
-	 		 radio.startReceive();
-	 		 msgSent=0;
-	 		 msgRec =1;
-	  	  }*/
-
-	//----------------------------------------------------------------------------
-	  if(transmittedFlag == true) {
-	    enableInterrupt = false;
-	    String message = (String)x++ +",hh:mm:ss,Location\n";  //test message
-	    transmittedFlag = false;
-
-	    Serial.print(F("[SX1262] Sending packet:...\n"));
-	    Serial.print(message);
-
-	    transmissionState = radio.startTransmit(message);
-	    if (transmissionState == ERR_NONE) {
-	      Serial.println(F("\t...transmission finished!"));
-	    delay(1000);
-
-	    } else {
-	      Serial.print(F("\t...transmission failed, code "));
-	      Serial.println(transmissionState);
-	    }
-	    Savedmsgs="";
-	    enableInterrupt = true;
+	  if(transmitTimer % 10000 == 100){		//Goes to transmit every 10s
+	    mode=TRANSMITMODE;
+	    transmittedFlag = TRUE;
 	  }
-	//---------------------------------------------------------------------
-	  if(receivedFlag) {
-	    enableInterrupt = false;
-	    receivedFlag = false;
-	    String str;
 
-	    int counter = 0;
-	    int change = 0;
-	    int len =0;
-	    int state = radio.readData(str);    //Puts data into str from input signal
+	//-----------------------------------------------------Enter Transmit Mode
+	if (transmittedFlag == TRUE && mode ==TRANSMITMODE){
+	 enableInterrupt = FALSE;
+	 transmittedFlag = FALSE;
+	//Sets up for transmission
+	  getPacket();
+	  setPacketparam();
+	  setDIOTransmit();
+	  setBufferbase();
+	  clrIRQ();
 
-	    Serial.println(str.length());
-
-	    }
-	    if (state == ERR_NONE) {            //if no error
-	      Savedmsgs+=(str);					//adding new message to end of string
-	      Serial.print(F("[SX1262] Saved Data:\n"));
-	      Serial.println(Savedmsgs);
-	    } else if (state == ERR_CRC_MISMATCH) {
-	      Serial.println(F("CRC error!"));
-
-	    } else {
-	      Serial.print(F("failed, code "));
-	      Serial.println(state);
-
-	    }
-	    radio.startReceive();
-	    enableInterrupt = true;
+	//Write Payload to Buffer
+	/*int i = 0;
+	char msg[] = {"Message from Me\n"}; //test message
+	int msglen = sizeof msg;
+	HAL_GPIO_WritePin( GPIOB, CS_RADIO_Pin, GPIO_PIN_RESET);
+	 waitBusy();
+	 SPI.transfer(0x0E);
+	 SPI.transfer(0x00);
+	 for(i = 0; i < msglen;i++)
+	 SPI.transfer(msg[i]);
+	 HAL_GPIO_WritePin( GPIOB, CS_RADIO_Pin, GPIO_PIN_SET);*/
+	  writePayload("Test message");
+	//Begins Transmission
+	  setTx();
+	  setStandby();
+	  enableInterrupt =TRUE;
 	  }
-	//------------------------------------------------------------------------------------------
+	//-----------------------------------------------------Enter Receive Mode
+	if((mode==RECEIVEMODE)){
+	 enableInterrupt = FALSE;
+	 receivedFlag = 0;
 
+	//Set Receiving Parameters and wait for payload
+	  setDIORead();
+	  setBufferbase();
+	  clrIRQ();
+
+	  setPacketparam();
+	  setRx();
+	  if(receivedFlag==1){
+	    setStandby();
+	    getPacket();
+	  //ReadPayload
+	    uint8_t Buffer[3];
+	    getBufferstat(Buffer);
+	    char recMessage[Buffer[1]];
+	    readBuffer(recMessage,Buffer[1],Buffer[2]);
+	  //Print payload
+	    for(int i =0;i<Buffer[1];i++)
+	      print(recMessage[i]);
+	    print("\n");
+	  }
+
+
+	}
+	}
+//---------------------------------------------------------------------------------------End IOT stuff
 	  }
 	}
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+
+void setRx(void){
+  uint8_t data[] = {0x82,0xFF,0xFF,0xFF};
+  SPItransferCmd(SPIWrite,data,NULL,2);
+  println("Waiting to READ Something");
+  enableInterrupt= TRUE;
+  while((HAL_GPIO_ReadPin(RADIO_DIO1_GPIO_Port, RADIO_DIO1_Pin)< 7 )&& (receivedFlag == FALSE) && (HAL_GetTick()% 1000!=0)){
+    HAL_Delay(1);
   }
-  /* USER CODE END 3 */
+  setStandby();
 }
+
+void setTx(void){
+  uint8_t data[] = {0x83,0x00,0x00,0x00};
+  SPItransferCmd(SPIWrite,data,NULL,2);
+  println("Starting Transmission");
+  enableInterrupt= TRUE;
+  while((HAL_GPIO_ReadPin(RADIO_DIO1_GPIO_Port, RADIO_DIO1_Pin)< 7 )&& (transmittedFlag == FALSE) && (HAL_GetTick()% 1000!=0)){
+	 HAL_Delay(1);
+  println("Transmission Finished");
+}
+}
+  /* USER CODE END 3 */
 
 /**
   * @brief System Clock Configuration
@@ -756,9 +784,6 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(CS_MIC_ADC_GPIO_Port, CS_MIC_ADC_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(RADIO_DIO1_GPIO_Port, RADIO_DIO1_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, RADIO_RST_Pin|CS_RADIO_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
@@ -815,9 +840,8 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin : RADIO_DIO1_Pin */
   GPIO_InitStruct.Pin = RADIO_DIO1_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(RADIO_DIO1_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : RADIO_RST_Pin CS_RADIO_Pin */
@@ -854,6 +878,23 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+
+//Radio interrupt when receiving/transmitting
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+	if (GPIO_Pin == RADIO_DIO1_Pin){
+		if(!enableInterrupt) {
+		    return;
+		  }
+		if (RadioMode == RECEIVEMODE)
+		    receivedFlag = 1;
+		else
+			transmittedFlag = 1;
+}
+
+}
+
 
 // Callback: timer has rolled over - time to sample audio from via external ADC
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
@@ -1266,6 +1307,7 @@ void Error_Handler(void)
   /* USER CODE END Error_Handler_Debug */
 }
 
+
 #ifdef  USE_FULL_ASSERT
 /**
   * @brief  Reports the name of the source file and the source line number
@@ -1284,41 +1326,3 @@ void assert_failed(uint8_t *file, uint32_t line)
 #endif /* USE_FULL_ASSERT */
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
-
-//just trying out SD stuff here
-//Mount_SD("/");
-//Format_SD();
-//Create_File("FILE1.TXT");
-//Unmount_SD("/");
-//uint8_t indx = 42;
-//char sd_writebuffer[100];
-//Mount_SD("/");
-//sprintf(sd_writebuffer, "Hello ---> %d\n", indx);
-//Update_File("FILE1.TXT", sd_writebuffer);
-//Unmount_SD("/");*/
-
-/* TESTING THE AUDIO BUFFER SYSTEM - seems okay?
-//Check audio buffer for new sample
-	if (audio_buffer_flag == 1) {	//buffer is half full with new data
-		audio_buffer_flag = 0;
-		// determining start location of audio sample in buffer (either 0 or full/2)
-		uint32_t sample_start_location = 0;
-		if (audio_buffer_location < (AUDIO_SAMPLE_RATE * AUDIO_BUFFER_SECS / 2)) {
-			sample_start_location = (AUDIO_SAMPLE_RATE*AUDIO_BUFFER_SECS / 2);
-		}
-		//complete sample is briefly stored in memory from...
-		//audio_buffer[sample_start_location] to audio_buffer[sample_start_location+(AUDIO_SAMPLE_RATE * AUDIO_BUFFER_SECS / 2)]
-
-		//save newest audio sample to SD card
-		//write_audio_sample_sd(&audio_buffer[sample_start_location]);
-		println("AUDIO CAPTURE... ");
-		for (uint8_t i = 0; i < 10; i++)
-		{
-			print("audio_buffer[");
-			printuint32_t(sample_start_location + i);
-			print("] = ");
-			printuint16_t(audio_buffer[sample_start_location + i]);
-			println("");
-		}
-		println("");
-	}*/
