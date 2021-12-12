@@ -80,7 +80,6 @@ uint16_t audio_buffer[AUDIO_SAMPLE_RATE * AUDIO_BUFFER_SECS];
 // When buffer location reaches 50% or 100%, an interrupt sets a flag
 uint8_t audio_buffer_flag = 0;
 
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -189,8 +188,34 @@ int main(void)
 	{
 		time2 = new_time;	// update time
 		startSleeping();	// time for bed!
-	}
+	}/*
 
+	// TESTING THE AUDIO BUFFER SYSTEM - seems okay?
+	//Check audio buffer for new sample
+	if (audio_buffer_flag == 1) {	//buffer is half full with new data
+		light_show(5,1);
+		audio_buffer_flag = 0;
+		// determining start location of audio sample in buffer (either 0 or full/2)
+		uint32_t sample_start_location = 0;
+		if (audio_buffer_location < (AUDIO_SAMPLE_RATE * AUDIO_BUFFER_SECS / 2)) {
+			sample_start_location = (AUDIO_SAMPLE_RATE*AUDIO_BUFFER_SECS / 2);
+		}
+		//complete sample is briefly stored in memory from...
+		//audio_buffer[sample_start_location] to audio_buffer[sample_start_location+(AUDIO_SAMPLE_RATE * AUDIO_BUFFER_SECS / 2)]
+
+		//save newest audio sample to SD card
+		//write_audio_sample_sd(&audio_buffer[sample_start_location]);
+		println("AUDIO CAPTURE... ");
+		for (uint8_t i = 0; i < 10; i++)
+		{
+			print("audio_buffer[");
+			printuint32_t(sample_start_location + i);
+			print("] = ");
+			printuint16_t(audio_buffer[sample_start_location + i]);
+			println("");
+		}
+		println("");
+	}*/
 
     /* USER CODE END WHILE */
 
@@ -792,7 +817,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   if (htim == &htim16)
   {
     //sample audio on this interrupt
-	audio_buffer[audio_buffer_location] = mcp33131_get16b(hspi1);
+	audio_buffer[audio_buffer_location] = 0x12;
 	audio_buffer_location += 1;
 	if (audio_buffer_location >= (AUDIO_SAMPLE_RATE * AUDIO_BUFFER_SECS)) {
 		audio_buffer_location = 0; //handles rollover (circular buffer)

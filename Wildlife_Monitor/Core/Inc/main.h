@@ -58,6 +58,7 @@ void Error_Handler(void);
 void print(char _out[]);
 void println(char _out[]);
 void printuint32_t(uint32_t value);
+void print_raw_uint16_t(uint16_t value);
 void printuint16_t(uint16_t value);
 void printint16_t(int16_t value);
 void printuint8_t(uint8_t value);
