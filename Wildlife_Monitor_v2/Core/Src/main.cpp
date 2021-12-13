@@ -241,6 +241,7 @@ int main(void)
 		  if ((transmittedFlag == TRUE) && (mode == TRANSMITMODE))
 		  {
 			enableInterrupt = FALSE;
+			__HAL_RCC_TIM16_CLK_DISABLE();
 			transmittedFlag = FALSE;
 			//Sets up for transmission
 			getPacket();
@@ -249,19 +250,21 @@ int main(void)
 			setBufferbase();
 			clrIRQ();
 
-			const char* msg= "Test message";
+			const char* msg = "Test message";
 			writePayload(msg);
 
 			//Begins Transmission
 			setTx();
 			setStandby();
-			enableInterrupt =TRUE;
+			enableInterrupt = TRUE;
+			__HAL_RCC_TIM16_CLK_ENABLE();
 		  }
 
 		  //-----------------------------------------------------Enter Receive Mode
 		  if (mode==RECEIVEMODE)
 		  {
 			enableInterrupt = FALSE;
+			__HAL_RCC_TIM16_CLK_DISABLE();
 			receivedFlag = 0;
 			//Set Receiving Parameters and wait for payload
 			setDIORead();
@@ -927,6 +930,7 @@ void setRx(void){
   SPItransferCmd(SPIWrite,data,NULL,2);
   println("Waiting to READ Something");
   enableInterrupt= TRUE;
+  __HAL_RCC_TIM16_CLK_ENABLE();
   while((HAL_GPIO_ReadPin(RADIO_DIO1_GPIO_Port, RADIO_DIO1_Pin)< 7 )&& (receivedFlag == FALSE) && (HAL_GetTick()% 1000!=0))
   {
     HAL_Delay(1);
@@ -940,6 +944,7 @@ void setTx(void){
   SPItransferCmd(SPIWrite,data,NULL,2);
   println("Starting Transmission");
   enableInterrupt= TRUE;
+  __HAL_RCC_TIM16_CLK_ENABLE();
   while((HAL_GPIO_ReadPin(RADIO_DIO1_GPIO_Port, RADIO_DIO1_Pin)< 7 )&& (transmittedFlag == FALSE) && (HAL_GetTick()% 1000!=0))
   {
 	 HAL_Delay(1);
