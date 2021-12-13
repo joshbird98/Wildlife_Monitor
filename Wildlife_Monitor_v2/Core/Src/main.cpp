@@ -58,6 +58,8 @@ RTC_HandleTypeDef hrtc;
 
 SD_HandleTypeDef hsd1;
 
+SPI_HandleTypeDef hspi1;
+
 TIM_HandleTypeDef htim17;
 
 UART_HandleTypeDef huart1;
@@ -229,7 +231,7 @@ int main(void)
 		  int mode;
 		  int transmitTimer = HAL_GetTick();
 		  mode = RECEIVEMODE;						//Defaults to Receiving mode
-		  setStandby();
+		  setStandby(hspi1);
 
 		  if(transmitTimer % 10000 == 100)
 		  {		//Goes to transmit every 10s
@@ -244,18 +246,18 @@ int main(void)
 			__HAL_RCC_TIM16_CLK_DISABLE();
 			transmittedFlag = FALSE;
 			//Sets up for transmission
-			getPacket();
-			setPacketparam();
-			setDIOTransmit();
-			setBufferbase();
-			clrIRQ();
+			getPacket(hspi1);
+			setPacketparam(hspi1);
+			setDIOTransmit(hspi1);
+			setBufferbase(hspi1);
+			clrIRQ(hspi1);
 
 			const char* msg = "Test message";
-			writePayload(msg);
+			writePayload(msg, hspi1);
 
 			//Begins Transmission
 			setTx();
-			setStandby();
+			setStandby(hspi1);
 			enableInterrupt = TRUE;
 			__HAL_RCC_TIM16_CLK_ENABLE();
 		  }
@@ -267,21 +269,21 @@ int main(void)
 			__HAL_RCC_TIM16_CLK_DISABLE();
 			receivedFlag = 0;
 			//Set Receiving Parameters and wait for payload
-			setDIORead();
-			setBufferbase();
-			clrIRQ();
-			setPacketparam();
+			setDIORead(hspi1);
+			setBufferbase(hspi1);
+			clrIRQ(hspi1);
+			setPacketparam(hspi1);
 			setRx();
 
 			if (receivedFlag==1)	//i dont think this flag is ever set?
 			{
-			  setStandby();
-			  getPacket();
+			  setStandby(hspi1);
+			  getPacket(hspi1);
 			  //ReadPayload
 			  uint8_t Buffer[3];
-			  getBufferstat(Buffer);
+			  getBufferstat(Buffer, hspi1);
 			  uint8_t recMessage[Buffer[1]];
-			  readBuffer(recMessage,Buffer[1],Buffer[2]);
+			  readBuffer(recMessage,Buffer[1],Buffer[2], hspi1);
 			  //Print payload
 			  println((char*)recMessage);
 			}
@@ -927,7 +929,7 @@ void startSleeping(void)
 // Receives data via the LoRa module
 void setRx(void){
   uint8_t data[] = {0x82,0xFF,0xFF,0xFF};
-  SPItransferCmd(SPIWrite,data,NULL,2);
+  SPItransferCmd(SPIWrite,data,NULL,2, hspi1);
   println("Waiting to READ Something");
   enableInterrupt= TRUE;
   __HAL_RCC_TIM16_CLK_ENABLE();
@@ -935,13 +937,13 @@ void setRx(void){
   {
     HAL_Delay(1);
   }
-  setStandby();
+  setStandby(hspi1);
 }
 
 // Transmits data from the LoRa module
 void setTx(void){
   uint8_t data[] = {0x83,0x00,0x00,0x00};
-  SPItransferCmd(SPIWrite,data,NULL,2);
+  SPItransferCmd(SPIWrite,data,NULL,2, hspi1);
   println("Starting Transmission");
   enableInterrupt= TRUE;
   __HAL_RCC_TIM16_CLK_ENABLE();

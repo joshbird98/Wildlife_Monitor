@@ -21,6 +21,10 @@
 #ifndef __STM32L4xx_IT_H
 #define __STM32L4xx_IT_H
 
+#ifdef __cplusplus
+ extern "C" {
+#endif
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -58,5 +62,9 @@ void COMP_IRQHandler(void);
 /* USER CODE BEGIN EFP */
 
 /* USER CODE END EFP */
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* __STM32L4xx_IT_H */
