@@ -8,6 +8,10 @@
 #ifndef FILE_HANDLING_RTOS_H_
 #define FILE_HANDLING_RTOS_H_
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "fatfs.h"
 #include "string.h"
 #include "stdio.h"
@@ -31,7 +35,9 @@ FRESULT Format_SD (void);
  * @ name : is the path to the file*/
 FRESULT Write_File (char *name, char *data, uint32_t num_bytes);
 
+FRESULT Write_File_16 (char *name, volatile int16_t *data, uint32_t num_bytes);
 FRESULT Write_File_u16 (char *name, uint16_t *data, uint32_t num_bytes);
+FRESULT Write_File_u8 (char *name, uint8_t *data, uint32_t num_bytes);
 
 /* read data from the file
  * @ name : is the path to the file*/
@@ -57,8 +63,11 @@ void Check_SD_Space (void);
  * @ name : is the path to the file
  */
 FRESULT Update_File (char *name, char *data);
+FRESULT Update_File_16 (char *name, volatile int16_t *data, uint32_t num_bytes);
 
 
-
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* FILE_HANDLING_RTOS_H_ */

@@ -56,10 +56,14 @@ void Error_Handler(void);
 void print(const char _out[]);
 void println(const char _out[]);
 void printuint32_t(uint32_t value);
+void printint32_t(int32_t value);
+void printint32_tln(int32_t value);
 void print_raw_uint16_t(uint16_t value);
 void printuint16_t(uint16_t value);
 void printint16_t(int16_t value);
 void printuint8_t(uint8_t value);
+void printint8_t(uint8_t value);
+void print_lora_pkt(void);
 
 void led_rgb(uint8_t led, uint8_t colour);
 
@@ -129,7 +133,7 @@ void led_rgb(uint8_t led, uint8_t colour);
 /* USER CODE BEGIN Private defines */
 #define AUDIO_SAMPLE_RATE 16000
 #define AUDIO_SAMPLE_SECS 4
-#define AUDIO_BUFFER_SECS AUDIO_SAMPLE_SECS * 2
+#define AUDIO_BUFFER_SECS (AUDIO_SAMPLE_SECS * 2)
 #define EXT_PWR_DETECTED 	0b00000001
 #define BATTERY_LOW			0b00000010
 #define BATTERY_OVERCHRG	0b00000100
@@ -143,6 +147,7 @@ void led_rgb(uint8_t led, uint8_t colour);
 
 #define DEFAULT_MIC_GAIN 1000
 #define TARGET_BIT_RANGE 20000
+
 
 struct PowerStatus {
 	uint8_t status_flag;

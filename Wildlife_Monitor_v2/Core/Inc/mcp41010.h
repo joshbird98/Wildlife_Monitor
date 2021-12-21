@@ -3,6 +3,9 @@
  *
  *  Created on: Nov 12, 2021
  *      Author: Josh
+ *
+ *  Usage example
+ *	mic_gain = set_mic_gain(DEFAULT_MIC_GAIN, hspi1); // initialises the microphone gain to 2000
  */
 
 #ifndef INC_MCP41010_H_

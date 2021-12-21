@@ -1,93 +1,43 @@
-/* USER CODE BEGIN Header */
+/* Wildlife Monitor */
 /**
   ******************************************************************************
   * @file           : main.cpp
   * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2021 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
-/* USER CODE END Header */
-/* Includes ------------------------------------------------------------------*/
+  *****************************************************************************/
+
 #include "main.h"
 #include "fatfs.h"
-
-/* Private includes ----------------------------------------------------------*/
-/* USER CODE BEGIN Includes */
 #include "string.h"
 #include "stdio.h"
 #include "mcp33131.h"
 #include "mcp41010.h"
 #include "File_Handling.h"
-#include "RadioCommands.h"
-/* USER CODE END Includes */
-
-/* Private typedef -----------------------------------------------------------*/
-/* USER CODE BEGIN PTD */
-
-/* USER CODE END PTD */
-
-/* Private define ------------------------------------------------------------*/
-/* USER CODE BEGIN PD */
-
-/* USER CODE END PD */
-
-/* Private macro -------------------------------------------------------------*/
-/* USER CODE BEGIN PM */
-
-/* USER CODE END PM */
+#include "wav_header.h"
+#include "SX1262.h"
 
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
-
 COMP_HandleTypeDef hcomp1;
-
 CRC_HandleTypeDef hcrc;
-
-DFSDM_Channel_HandleTypeDef hdfsdm1_channel1;
-
 RTC_HandleTypeDef hrtc;
-
 SD_HandleTypeDef hsd1;
-
 SPI_HandleTypeDef hspi1;
-
 TIM_HandleTypeDef htim17;
-
 UART_HandleTypeDef huart1;
 
-/* USER CODE BEGIN PV */
 struct PowerStatus PowerStatus1;
 uint16_t mic_gain;
+volatile uint32_t audio_buffer_location = 0;
+volatile int16_t audio_buffer[AUDIO_SAMPLE_RATE * AUDIO_BUFFER_SECS];
+volatile uint8_t audio_buffer_flag = 0;
 
-
-//Audio capture - not yet tested
-// TIMER16 sets off an interrupt every 1/AUDIO_SAMPLE_RATE seconds.
-// On this interrupt, a function retrieves a 16-bit audio sample from
-// the external MCP33131 ADC, and stores it in the audio_buffer below.
-// Then the audio buffer location is incremented, maybe rolling back
-// to position zero. This buffer holds AUDIO_BUFFER_SECS seconds of audio.
-uint32_t audio_buffer_location = 0;
-uint16_t audio_buffer[AUDIO_SAMPLE_RATE * AUDIO_BUFFER_SECS];
-// When buffer location reaches 50% or 100%, an interrupt sets a flag
-uint8_t audio_buffer_flag = 0;
-
-/* USER CODE END PV */
+char sd_buffer[100];
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_COMP1_Init(void);
-static void MX_DFSDM1_Init(void);
 static void MX_SDMMC1_SD_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_USART1_UART_Init(void);
@@ -95,7 +45,6 @@ static void MX_CRC_Init(void);
 static void MX_RTC_Init(void);
 static void MX_TIM17_Init(void);
 
-/* USER CODE BEGIN PFP */
 static void Manual_TIM16(void);
 struct PowerStatus updatePowerStatus(struct PowerStatus powerstat);
 void write_audio_sample_sd(uint16_t *data);
@@ -105,203 +54,97 @@ void ADC_Select_CH1 (void);
 void ADC_Select_CHVBAT(void);
 void printPowerStatus(struct PowerStatus power_status);
 void startSleeping(void);
-uint16_t auto_adjust_gain(uint32_t sample_start_location);
+void preprocess_audio(uint32_t sample_start_location);
 void setRx(void);
 void setTx(void);
+uint16_t auto_adjust_gain(uint32_t sample_start_location);
 
-/* USER CODE END PFP */
-
-/* Private user code ---------------------------------------------------------*/
-/* USER CODE BEGIN 0 */
-volatile int transmittedFlag = FALSE;
-volatile int receivedFlag = TRUE;
-volatile int enableInterrupt = TRUE;
-int RadioMode=RECEIVEMODE;
-int EnableRadio=TRUE;
-/* USER CODE END 0 */
-
-/**
-  * @brief  The application entry point.
-  * @retval int
-  */
 int main(void)
 {
-  /* USER CODE BEGIN 1 */
+	HAL_Init();
+	SystemClock_Config();
+	MX_GPIO_Init();
+	MX_ADC1_Init();
+	MX_COMP1_Init();
+	MX_SDMMC1_SD_Init();
+	MX_SPI1_Init();
+	MX_USART1_UART_Init();
+	MX_FATFS_Init();
+	MX_CRC_Init();
+	MX_RTC_Init();
+	Manual_TIM16();
+	MX_TIM17_Init();
 
-  /* USER CODE END 1 */
+	HAL_COMP_Start_IT(&hcomp1);
+	light_show(200, 1);
+	println("Wildlife monitor has started up!");
 
-  /* MCU Configuration--------------------------------------------------------*/
-
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-  HAL_Init();
-
-  /* USER CODE BEGIN Init */
-
-  /* USER CODE END Init */
-
-  /* Configure the system clock */
-  SystemClock_Config();
-
-  /* USER CODE BEGIN SysInit */
-
-  /* USER CODE END SysInit */
-
-  /* Initialize all configured peripherals */
-  MX_GPIO_Init();
-  MX_ADC1_Init();
-  MX_COMP1_Init();
-  MX_DFSDM1_Init();
-  MX_SDMMC1_SD_Init();
-  MX_SPI1_Init();
-  MX_USART1_UART_Init();
-  MX_FATFS_Init();
-  MX_CRC_Init();
-  MX_RTC_Init();
-  Manual_TIM16();
-  MX_TIM17_Init();
-
-
-  /* USER CODE BEGIN 2 */
-
-  //the following code is just intended as examples to show how some in-built or custom functions COULD be used.
-  //feel free to change anything, and apologies for poor documentation, message me anytime for clarifications - JB
-
-  HAL_COMP_Start_IT(&hcomp1);
-
-  light_show(200, 1);
-  println("Wildlife monitor has started up!");
-
-  PowerStatus1 = updatePowerStatus(PowerStatus1);
-  printPowerStatus(PowerStatus1);
-
-  mic_gain = set_mic_gain(DEFAULT_MIC_GAIN, hspi1); // initialises the microphone gain to 2000
-
-
-
-  /* USER CODE END 2 */
-
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
-
-  while (1)
-  {
-	/*uint32_t new_time = HAL_GetTick();
-	if ((new_time - time1) > 500)		// every 500 ms, flash the lights like a heartbeat
+	/* Infinite loop */
+	while (1)
 	{
-		time1 = new_time;	// update time of last heartbeat
-		light_show(5, 1);   // heartbeat!
-	}
-	if ((new_time - time2) > 5000)		// every 5000ms, send the device to sleep (wakes up on audio detection)
-	{
-		time2 = new_time;	// update time
-		startSleeping();	// time for bed!
-	}*/
-
-	// TESTING THE AUDIO BUFFER SYSTEM - seems okay?
-	//Check audio buffer for new sample
-
-	if (audio_buffer_flag == 1) {	//buffer is half full with new data
-		light_show(10,1);
-		audio_buffer_flag = 0;
-		// determining start location of audio sample in buffer (either 0 or full/2)
-		uint32_t sample_start_location = 0;
-		if (audio_buffer_location < (AUDIO_SAMPLE_RATE * AUDIO_BUFFER_SECS / 2)) {
-			sample_start_location = (AUDIO_SAMPLE_RATE*AUDIO_BUFFER_SECS / 2);
-		}
-		//complete sample is briefly stored in memory from...
-		//audio_buffer[sample_start_location] to audio_buffer[sample_start_location+(AUDIO_SAMPLE_RATE * AUDIO_BUFFER_SECS / 2)]
-
-		//save newest audio sample to SD card
-		//write_audio_sample_sd(&audio_buffer[sample_start_location]);
-
-		println("NEW_SAMPLE");/*
-		//Full serial dump of audio buffer
-		__HAL_RCC_TIM16_CLK_DISABLE(); // stop clock from interrupting dump
-		for (uint32_t i = 0; i < (AUDIO_SAMPLE_RATE * AUDIO_BUFFER_SECS / 2); i++) {
-			printuint16_t(audio_buffer[sample_start_location + i]);
-			print(",");
-		}
-		println("");
-		__HAL_RCC_TIM16_CLK_ENABLE();*/
-		mic_gain = auto_adjust_gain(sample_start_location);
-
-	  //-------------------------------------------------------------------- IOT Stuff Start
-		if ((EnableRadio))
+		if (audio_buffer_flag == 1)	//audio buffer is half full with new data
 		{
-		  int mode;
-		  int transmitTimer = HAL_GetTick();
-		  mode = RECEIVEMODE;						//Defaults to Receiving mode
-		  setStandby(hspi1);
+			light_show(10,1);
+			audio_buffer_flag = 0;
 
-		  if(transmitTimer % 10000 == 100)
-		  {		//Goes to transmit every 10s
-			mode = TRANSMITMODE;
-			transmittedFlag = TRUE;
-		  }
-
-		  //-----------------------------------------------------Enter Transmit Mode
-		  if ((transmittedFlag == TRUE) && (mode == TRANSMITMODE))
-		  {
-			enableInterrupt = FALSE;
-			__HAL_RCC_TIM16_CLK_DISABLE();
-			transmittedFlag = FALSE;
-			//Sets up for transmission
-			getPacket(hspi1);
-			setPacketparam(hspi1);
-			setDIOTransmit(hspi1);
-			setBufferbase(hspi1);
-			clrIRQ(hspi1);
-
-			const char* msg = "Test message";
-			writePayload(msg, hspi1);
-
-			//Begins Transmission
-			setTx();
-			setStandby(hspi1);
-			enableInterrupt = TRUE;
-			__HAL_RCC_TIM16_CLK_ENABLE();
-		  }
-
-		  //-----------------------------------------------------Enter Receive Mode
-		  if (mode==RECEIVEMODE)
-		  {
-			enableInterrupt = FALSE;
-			__HAL_RCC_TIM16_CLK_DISABLE();
-			receivedFlag = 0;
-			//Set Receiving Parameters and wait for payload
-			setDIORead(hspi1);
-			setBufferbase(hspi1);
-			clrIRQ(hspi1);
-			setPacketparam(hspi1);
-			setRx();
-
-			if (receivedFlag==1)	//i dont think this flag is ever set?
+			// determining start location of audio sample in buffer (either 0 or full/2)
+			// determine which half to the buffer to look at (start->halfway OR halfway->end)
+			uint32_t sample_start_location = 0;
+			if (audio_buffer_location < (AUDIO_SAMPLE_RATE * AUDIO_SAMPLE_SECS))
 			{
-			  setStandby(hspi1);
-			  getPacket(hspi1);
-			  //ReadPayload
-			  uint8_t Buffer[3];
-			  getBufferstat(Buffer, hspi1);
-			  uint8_t recMessage[Buffer[1]];
-			  readBuffer(recMessage,Buffer[1],Buffer[2], hspi1);
-			  //Print payload
-			  println((char*)recMessage);
+				sample_start_location = (AUDIO_SAMPLE_RATE * AUDIO_SAMPLE_SECS);
 			}
-		  }
-		} //-------------------------------------------------------------------End IOT stuff
-	}
-    /* USER CODE END WHILE */
 
-    /* USER CODE BEGIN 3 */
-  }
-  /* USER CODE END 3 */
+			//do some pre-processing to remove pops
+			preprocess_audio(sample_start_location);
+
+			//save newest audio sample to SD card
+			// read the RTC registers inside the STM32
+			uint32_t date_reg = RTC->DR;
+			uint32_t time_reg = RTC->TR;
+			// interpret their BCD format into regular values and assign to month,day,hours,min,secs
+
+			uint8_t day = (10 * ((date_reg >> 4	) & 0x3)) + (date_reg & 0x3F);
+			uint8_t month = (10 * ((date_reg >> 12) & 0x1)) + ((date_reg >> 8) & 0xF);
+			uint8_t year = (10 * ((date_reg >> 20) & 0xF)) + ((date_reg >> 16) & 0xF);
+			uint8_t hours = (10 * ((time_reg >> 20) & 0x3)) + ((time_reg >> 16) & 0xF);
+			uint8_t mins = (10 * ((time_reg >> 12) & 0x7)) + ((time_reg >> 8) & 0xF);
+			uint8_t secs = (10 * ((time_reg >> 4) & 0x7)) + (time_reg & 0xF);
+
+			Mount_SD("/");
+			char filename[100];
+			sprintf(filename, "%d.wav", secs);
+			Create_File(filename);
+			Write_File_u8(filename, wav_header, 44);
+			Update_File_16(filename, &audio_buffer[sample_start_location], (AUDIO_SAMPLE_RATE*AUDIO_BUFFER_SECS));
+			Unmount_SD("/");
+
+			//write_audio_sample_sd(&audio_buffer[sample_start_location]);
+
+			/*// Print out the entire sample for analysis on PC (blocking process)
+			println("NEW_SAMPLE");
+			__HAL_RCC_TIM16_CLK_DISABLE(); // stop clock from interrupting dump
+			for (uint32_t i = sample_start_location; i < (sample_start_location + (AUDIO_SAMPLE_RATE * AUDIO_SAMPLE_SECS)); i++)
+			{
+				printint16_t(audio_buffer[i]);
+				print(",");
+			}
+			println("");
+			__HAL_RCC_TIM16_CLK_ENABLE();
+
+			light_show(200,1);
+
+			//mic_gain = auto_adjust_gain(sample_start_location);*/
+		}
+	}
 }
+
+
 
 /**
   * @brief System Clock Configuration
   * @retval None
   */
-
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
@@ -447,14 +290,6 @@ static void MX_COMP1_Init(void)
   */
 static void MX_CRC_Init(void)
 {
-
-  /* USER CODE BEGIN CRC_Init 0 */
-
-  /* USER CODE END CRC_Init 0 */
-
-  /* USER CODE BEGIN CRC_Init 1 */
-
-  /* USER CODE END CRC_Init 1 */
   hcrc.Instance = CRC;
   hcrc.Init.DefaultPolynomialUse = DEFAULT_POLYNOMIAL_ENABLE;
   hcrc.Init.DefaultInitValueUse = DEFAULT_INIT_VALUE_ENABLE;
@@ -465,48 +300,6 @@ static void MX_CRC_Init(void)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN CRC_Init 2 */
-
-  /* USER CODE END CRC_Init 2 */
-
-}
-
-/**
-  * @brief DFSDM1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_DFSDM1_Init(void)
-{
-
-  /* USER CODE BEGIN DFSDM1_Init 0 */
-
-  /* USER CODE END DFSDM1_Init 0 */
-
-  /* USER CODE BEGIN DFSDM1_Init 1 */
-
-  /* USER CODE END DFSDM1_Init 1 */
-  hdfsdm1_channel1.Instance = DFSDM1_Channel1;
-  hdfsdm1_channel1.Init.OutputClock.Activation = ENABLE;
-  hdfsdm1_channel1.Init.OutputClock.Selection = DFSDM_CHANNEL_OUTPUT_CLOCK_SYSTEM;
-  hdfsdm1_channel1.Init.OutputClock.Divider = 2;
-  hdfsdm1_channel1.Init.Input.Multiplexer = DFSDM_CHANNEL_EXTERNAL_INPUTS;
-  hdfsdm1_channel1.Init.Input.DataPacking = DFSDM_CHANNEL_STANDARD_MODE;
-  hdfsdm1_channel1.Init.Input.Pins = DFSDM_CHANNEL_FOLLOWING_CHANNEL_PINS;
-  hdfsdm1_channel1.Init.SerialInterface.Type = DFSDM_CHANNEL_SPI_RISING;
-  hdfsdm1_channel1.Init.SerialInterface.SpiClock = DFSDM_CHANNEL_SPI_CLOCK_INTERNAL;
-  hdfsdm1_channel1.Init.Awd.FilterOrder = DFSDM_CHANNEL_FASTSINC_ORDER;
-  hdfsdm1_channel1.Init.Awd.Oversampling = 1;
-  hdfsdm1_channel1.Init.Offset = 0;
-  hdfsdm1_channel1.Init.RightBitShift = 0x00;
-  if (HAL_DFSDM_ChannelInit(&hdfsdm1_channel1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN DFSDM1_Init 2 */
-
-  /* USER CODE END DFSDM1_Init 2 */
-
 }
 
 /**
@@ -516,17 +309,9 @@ static void MX_DFSDM1_Init(void)
   */
 static void MX_RTC_Init(void)
 {
-
-  /* USER CODE BEGIN RTC_Init 0 */
-
-  /* USER CODE END RTC_Init 0 */
-
   RTC_TimeTypeDef sTime = {0};
   RTC_DateTypeDef sDate = {0};
 
-  /* USER CODE BEGIN RTC_Init 1 */
-
-  /* USER CODE END RTC_Init 1 */
   /** Initialize RTC Only
   */
   hrtc.Instance = RTC;
@@ -542,14 +327,10 @@ static void MX_RTC_Init(void)
     Error_Handler();
   }
 
-  /* USER CODE BEGIN Check_RTC_BKUP */
-
-  /* USER CODE END Check_RTC_BKUP */
-
   /** Initialize RTC and set the Time and Date
   */
-  sTime.Hours = 0x0;
-  sTime.Minutes = 0x0;
+  sTime.Hours = 0x7;
+  sTime.Minutes = 0x30;
   sTime.Seconds = 0x0;
   sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
   sTime.StoreOperation = RTC_STOREOPERATION_RESET;
@@ -558,18 +339,14 @@ static void MX_RTC_Init(void)
     Error_Handler();
   }
   sDate.WeekDay = RTC_WEEKDAY_MONDAY;
-  sDate.Month = RTC_MONTH_JANUARY;
-  sDate.Date = 0x1;
-  sDate.Year = 0x0;
+  sDate.Month = RTC_MONTH_DECEMBER;
+  sDate.Date = 0x20;
+  sDate.Year = 0x21;
 
   if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN RTC_Init 2 */
-
-  /* USER CODE END RTC_Init 2 */
-
 }
 
 /**
@@ -579,25 +356,13 @@ static void MX_RTC_Init(void)
   */
 static void MX_SDMMC1_SD_Init(void)
 {
-
-  /* USER CODE BEGIN SDMMC1_Init 0 */
-
-  /* USER CODE END SDMMC1_Init 0 */
-
-  /* USER CODE BEGIN SDMMC1_Init 1 */
-
-  /* USER CODE END SDMMC1_Init 1 */
   hsd1.Instance = SDMMC1;
   hsd1.Init.ClockEdge = SDMMC_CLOCK_EDGE_RISING;
   hsd1.Init.ClockPowerSave = SDMMC_CLOCK_POWER_SAVE_DISABLE;
   hsd1.Init.BusWide = SDMMC_BUS_WIDE_4B;
   hsd1.Init.HardwareFlowControl = SDMMC_HARDWARE_FLOW_CONTROL_DISABLE;
-  hsd1.Init.ClockDiv = 0;
+  hsd1.Init.ClockDiv = 250;
   hsd1.Init.Transceiver = SDMMC_TRANSCEIVER_DISABLE;
-  /* USER CODE BEGIN SDMMC1_Init 2 */
-
-  /* USER CODE END SDMMC1_Init 2 */
-
 }
 
 /**
@@ -607,14 +372,6 @@ static void MX_SDMMC1_SD_Init(void)
   */
 static void MX_SPI1_Init(void)
 {
-
-  /* USER CODE BEGIN SPI1_Init 0 */
-
-  /* USER CODE END SPI1_Init 0 */
-
-  /* USER CODE BEGIN SPI1_Init 1 */
-
-  /* USER CODE END SPI1_Init 1 */
   /* SPI1 parameter configuration*/
   hspi1.Instance = SPI1;
   hspi1.Init.Mode = SPI_MODE_MASTER;
@@ -623,7 +380,7 @@ static void MX_SPI1_Init(void)
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi1.Init.NSS = SPI_NSS_SOFT;
-  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_64;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -634,10 +391,6 @@ static void MX_SPI1_Init(void)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN SPI1_Init 2 */
-
-  /* USER CODE END SPI1_Init 2 */
-
 }
 
 
@@ -648,14 +401,6 @@ static void MX_SPI1_Init(void)
   */
 static void MX_TIM17_Init(void)
 {
-
-  /* USER CODE BEGIN TIM17_Init 0 */
-
-  /* USER CODE END TIM17_Init 0 */
-
-  /* USER CODE BEGIN TIM17_Init 1 */
-
-  /* USER CODE END TIM17_Init 1 */
   htim17.Instance = TIM17;
   htim17.Init.Prescaler = 0;
   htim17.Init.CounterMode = TIM_COUNTERMODE_UP;
@@ -667,10 +412,6 @@ static void MX_TIM17_Init(void)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN TIM17_Init 2 */
-
-  /* USER CODE END TIM17_Init 2 */
-
 }
 
 /**
@@ -680,14 +421,6 @@ static void MX_TIM17_Init(void)
   */
 static void MX_USART1_UART_Init(void)
 {
-
-  /* USER CODE BEGIN USART1_Init 0 */
-
-  /* USER CODE END USART1_Init 0 */
-
-  /* USER CODE BEGIN USART1_Init 1 */
-
-  /* USER CODE END USART1_Init 1 */
   huart1.Instance = USART1;
   huart1.Init.BaudRate = 115200;
   huart1.Init.WordLength = UART_WORDLENGTH_8B;
@@ -715,10 +448,6 @@ static void MX_USART1_UART_Init(void)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN USART1_Init 2 */
-
-  /* USER CODE END USART1_Init 2 */
-
 }
 
 /**
@@ -754,10 +483,11 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(CS_MIC_ADC_GPIO_Port, CS_MIC_ADC_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(RADIO_DIO1_GPIO_Port, RADIO_DIO1_Pin, GPIO_PIN_RESET);
+  //HAL_GPIO_WritePin(RADIO_DIO1_GPIO_Port, RADIO_DIO1_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, RADIO_RST_Pin|CS_RADIO_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, RADIO_RST_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(CS_RADIO_GPIO_Port, CS_RADIO_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOD, BLUE_3_Pin|RED_3_Pin|GREEN_3_Pin|BLUE_2_Pin, GPIO_PIN_SET);
@@ -813,9 +543,9 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin : RADIO_DIO1_Pin */
   GPIO_InitStruct.Pin = RADIO_DIO1_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  //GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(RADIO_DIO1_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : RADIO_RST_Pin CS_RADIO_Pin */
@@ -851,8 +581,6 @@ static void MX_GPIO_Init(void)
 
 }
 
-/* USER CODE BEGIN 4 */
-
 static void Manual_TIM16(void) {
 	__HAL_RCC_TIM16_CLK_ENABLE();
 	TIM16 -> PSC = (1 - 1);
@@ -878,7 +606,7 @@ void TIM1_UP_TIM16_IRQHandler(void)
     {
         TIM16 -> SR = ~(TIM_SR_UIF); // clear UIF flag
         //sample audio on this interrupt
-		audio_buffer[audio_buffer_location] = mcp33131_get16b(hspi1);
+		audio_buffer[audio_buffer_location] = (int16_t)mcp33131_get16b(hspi1);
 
 		audio_buffer_location += 1;
 		if (audio_buffer_location >= (AUDIO_SAMPLE_RATE * AUDIO_BUFFER_SECS)) {
@@ -911,6 +639,7 @@ void HAL_COMP_TriggerCallback(COMP_HandleTypeDef *hcomp)
   }
 }
 
+
 // this sends the device to a low-power sleep mode to conserve battery
 // it wakes up when the microphone detects noise, via a comparator interrupt
 // This could be used when no audio is detected for a while
@@ -926,37 +655,12 @@ void startSleeping(void)
   //Interrupt from comparator will wake CPU, and should handle turning back on ticks and timer interrupt
 }
 
-// Receives data via the LoRa module
-void setRx(void){
-  uint8_t data[] = {0x82,0xFF,0xFF,0xFF};
-  SPItransferCmd(SPIWrite,data,NULL,2, hspi1);
-  println("Waiting to READ Something");
-  enableInterrupt= TRUE;
-  __HAL_RCC_TIM16_CLK_ENABLE();
-  while((HAL_GPIO_ReadPin(RADIO_DIO1_GPIO_Port, RADIO_DIO1_Pin)< 7 )&& (receivedFlag == FALSE) && (HAL_GetTick()% 1000!=0))
-  {
-    HAL_Delay(1);
-  }
-  setStandby(hspi1);
-}
-
-// Transmits data from the LoRa module
-void setTx(void){
-  uint8_t data[] = {0x83,0x00,0x00,0x00};
-  SPItransferCmd(SPIWrite,data,NULL,2, hspi1);
-  println("Starting Transmission");
-  enableInterrupt= TRUE;
-  __HAL_RCC_TIM16_CLK_ENABLE();
-  while((HAL_GPIO_ReadPin(RADIO_DIO1_GPIO_Port, RADIO_DIO1_Pin)< 7 )&& (transmittedFlag == FALSE) && (HAL_GetTick()% 1000!=0))
-  {
-	 HAL_Delay(1);
-	 println("Transmission Finished");
-  }
-}
-
 
 // Function updates the power status structure, with newest voltages and status's
 // Note that I don't think VBAT reading is actually correct... will need to check ADC config
+// example usage
+//PowerStatus1 = updatePowerStatus(PowerStatus1);
+//printPowerStatus(PowerStatus1);
 struct PowerStatus updatePowerStatus(struct PowerStatus powerstat)
 {
 	//get adc results from three separate channels...
@@ -1034,6 +738,7 @@ struct PowerStatus updatePowerStatus(struct PowerStatus powerstat)
 	return powerstat;
 }
 
+
 // Writes in half the audio buffer to the SD in a file with timestamped name - UNTESTED
 void write_audio_sample_sd(uint16_t *data)
 {
@@ -1054,6 +759,7 @@ void write_audio_sample_sd(uint16_t *data)
 	Write_File_u16(filename, data, (AUDIO_SAMPLE_RATE*AUDIO_BUFFER_SECS));
 	Unmount_SD("/");
 }
+
 
 // Set the led (1, 2 or 3) to a specific colour.
 // Available colours are (r)ed, (g)reen, (b)lue, (y)ellow, (p)urple, (c)yan, (w)hite or (o)ff.
@@ -1119,6 +825,7 @@ void led_rgb(uint8_t led, uint8_t colour)
   }
 }
 
+
 // Flashes all the RGB lights. Use as light_show(100, 5);
 void light_show(uint16_t delay, uint8_t repeats)
 {
@@ -1168,11 +875,13 @@ void light_show(uint16_t delay, uint8_t repeats)
   }
 }
 
+
 // Prints out a string to serial. Use as print("Hello, world.")
 void print(const char _out[])
 {
   HAL_UART_Transmit(&huart1, (uint8_t *) _out, strlen(_out), 10);
 }
+
 
 // Prints out a string to serial, and starts a newline. Use as print("Hello!");
 void println(const char _out[])
@@ -1184,6 +893,7 @@ void println(const char _out[])
   HAL_UART_Transmit(&huart1, (uint8_t *) newline, 2, 10);
 }
 
+
 // Prints out a uint16_t type to serial.
 // uint16_t x = 3454242; printuint16_t(x);
 void printuint32_t(uint32_t value)
@@ -1193,11 +903,33 @@ void printuint32_t(uint32_t value)
   print(str);
 }
 
+
+void printint32_t(int32_t value)
+{
+  char str[10];
+  sprintf(str, "%ld", value);
+  print(str);
+}
+
+
+void printint32_tln(int32_t value)
+{
+  char str[10];
+  sprintf(str, "%ld", value);
+  print(str);
+  char newline[2];
+  newline[0] = '\r';
+  newline[1] = '\n';
+  HAL_UART_Transmit(&huart1, (uint8_t *) newline, 2, 10);
+}
+
+
 //Print raw uint16_t
 void print_raw_uint16_t(uint16_t value)
 {
 	HAL_UART_Transmit(&huart1, (uint8_t*)(&value), 2, 100);
 }
+
 
 // Prints out a uint16_t type to serial.
 // uint16_t x = 4242; printuint16_t(x);
@@ -1208,6 +940,7 @@ void printuint16_t(uint16_t value)
   print(str);
 }
 
+
 // Prints out a uint16_t type to serial.
 // int16_t x = -4242; printint16_t(x);
 void printint16_t(int16_t value)
@@ -1217,6 +950,7 @@ void printint16_t(int16_t value)
   print(str);
 }
 
+
 // Prints out a uint8_t type to serial
 // uint8_t x = 42; printuint16_t(x);
 void printuint8_t(uint8_t value)
@@ -1225,6 +959,27 @@ void printuint8_t(uint8_t value)
   sprintf(str, "%u", value);
   print(str);
 }
+
+
+// Prints out a uint8_t type to serial
+// uint8_t x = 42; printuint16_t(x);
+void printint8_t(int8_t value)
+{
+  char str[10];
+  sprintf(str, "%d", value);
+  print(str);
+}
+
+
+void print_lora_pkt(void)
+{
+  HAL_UART_Transmit(&huart1, (uint8_t *) recMessage, LORA_MAX_PAYLOAD + 3, 10);
+  char newline[2];
+  newline[0] = '\r';
+  newline[1] = '\n';
+  HAL_UART_Transmit(&huart1, (uint8_t *) newline, 2, 10);
+}
+
 
 // Set the ADC Channel
 void ADC_Select_CH0 (void)
@@ -1242,6 +997,7 @@ void ADC_Select_CH0 (void)
   }
 }
 
+
 // Set the ADC Channel
 void ADC_Select_CH1 (void)
 {
@@ -1258,6 +1014,7 @@ void ADC_Select_CH1 (void)
   }
 }
 
+
 // Set the ADC Channel
 void ADC_Select_CHVBAT (void)
 {
@@ -1273,6 +1030,7 @@ void ADC_Select_CHVBAT (void)
     Error_Handler();
   }
 }
+
 
 // Prints out a bunch of information over serial.
 // Shows power voltages and other power information.
@@ -1302,6 +1060,7 @@ void printPowerStatus(struct PowerStatus power_status)
     println("");
 }
 
+
 // This function attempts to automatically adjust the microphone gain
 // based on the loudness of a previous audio sample
 // ARG: uint32_t sample_start_location tells the function where in audio_buffer to look
@@ -1316,15 +1075,33 @@ uint16_t auto_adjust_gain(uint32_t sample_start_location) {
 	}
 	// now adjust microphone gain to attempt to get reach target audio range
 	uint16_t range = max_value - min_value;
-	print("RANGE in sample: ");
-	printuint16_t(range);
 	mic_gain = set_mic_gain(((mic_gain *  TARGET_BIT_RANGE) / range), hspi1);
-	print("\nNew mic gain: ");
-	printuint16_t(mic_gain);
-	println("");
 	return mic_gain;
 }
-/* USER CODE END 4 */
+
+
+// calculates the average of an audio sample (for use with correcting future samples
+// also removes any pops from sample, hopefully
+void preprocess_audio(uint32_t sample_start_location)
+{
+	int32_t sample_sum = 0;
+	int32_t sample_count = 0;
+	int16_t sample_average;
+
+	for (uint32_t i = sample_start_location; i < sample_start_location + (AUDIO_SAMPLE_RATE * AUDIO_SAMPLE_SECS); i++)
+	{
+		sample_sum += audio_buffer[i];
+		sample_count += 1;
+	}
+	sample_average = (int16_t)(sample_sum / sample_count);
+
+
+	for (uint32_t i = sample_start_location + 2; i < (sample_start_location + (AUDIO_SAMPLE_RATE * AUDIO_SAMPLE_SECS) - 2); i++)
+	{
+		audio_buffer[i] = audio_buffer[i] - sample_average;
+	}
+}
+
 
 /**
   * @brief  This function is executed in case of error occurrence.
@@ -1349,6 +1126,7 @@ void Error_Handler(void)
   /* USER CODE END Error_Handler_Debug */
 }
 
+
 #ifdef  USE_FULL_ASSERT
 /**
   * @brief  Reports the name of the source file and the source line number
@@ -1359,10 +1137,21 @@ void Error_Handler(void)
   */
 void assert_failed(uint8_t *file, uint32_t line)
 {
-  /* USER CODE BEGIN 6 */
-  /* User can add his own implementation to report the file name and line number,
-     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-  /* USER CODE END 6 */
+  println("Assert failed! Wrong parameters value: file %s on line %d\r\n", file, line);
 }
 #endif /* USE_FULL_ASSERT */
+
+
+// this code can be used as a LED heartbeat, but also to send the device to sleep every 5 seconds, until a loud noise wakes it up
+/*uint32_t new_time = HAL_GetTick();
+	if ((new_time - time1) > 500)		// every 500 ms, flash the lights like a heartbeat
+	{
+		time1 = new_time;	// update time of last heartbeat
+		light_show(5, 1);   // heartbeat!
+	}
+	if ((new_time - time2) > 5000)		// every 5000ms, send the device to sleep (wakes up on audio detection)
+	{
+		time2 = new_time;	// update time
+		startSleeping();	// time for bed!
+	}*/
 

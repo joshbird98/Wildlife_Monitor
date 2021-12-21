@@ -46,10 +46,10 @@ float set_digipot(uint16_t res, SPI_HandleTypeDef hspi)
 //here, gain can go from about 20 to 2000
 float set_mic_gain(uint16_t gain, SPI_HandleTypeDef hspi)
 {
-	// gain = 200k/R, ie R = 200k/gain
-	uint16_t resistance = (uint16_t)(200000.0/gain);
+	// gain = 400k/R, ie R = 400k/gain
+	uint16_t resistance = (uint16_t)(400000.0/gain);
 	float actual_resistance = set_digipot(resistance, hspi);
-	return (200000.0 / actual_resistance);
+	return (400000.0 / actual_resistance);
 }
 
 #ifdef __cplusplus

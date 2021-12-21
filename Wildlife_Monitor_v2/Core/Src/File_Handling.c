@@ -7,6 +7,11 @@
 
 #include <File_Handling.h>
 #include "stm32l4xx_hal.h"
+#include "main.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* =============================>>>>>>>> NO CHANGES AFTER THIS LINE =====================================>>>>>>> */
 
@@ -28,6 +33,9 @@ void Mount_SD (const TCHAR* path)
 	fresult = f_mount(&fs, path, 1);
 	if (fresult != FR_OK) println ("ERROR!!! in mounting SD CARD...\n\n");
 	else println("SD CARD mounted successfully...\n");
+	print("FRESULT: ");
+	printuint8_t((uint8_t)fresult);
+	println("");
 }
 
 void Unmount_SD (const TCHAR* path)
@@ -173,6 +181,65 @@ FRESULT Write_File (char *name, char *data, uint32_t num_bytes)
 }
 
 
+FRESULT Write_File_u8 (char *name, uint8_t *data, uint32_t num_bytes)
+{
+
+	/**** check whether the file exists or not ****/
+	fresult = f_stat (name, &fno);
+	if (fresult != FR_OK)
+	{
+		char *buf = malloc(100*sizeof(char));
+		sprintf (buf, "ERROR!!! *%s* does not exists\n\n", name);
+		println(buf);
+	    free(buf);
+	    return fresult;
+	}
+
+	else
+	{
+	    /* Create a file with read write access and open it */
+	    fresult = f_open(&fil, name, FA_OPEN_EXISTING | FA_WRITE);
+	    if (fresult != FR_OK)
+	    {
+	    	char *buf = malloc(100*sizeof(char));
+	    	sprintf (buf, "ERROR!!! No. %d in opening file *%s*\n\n", fresult, name);
+	    	println(buf);
+	        free(buf);
+	        return fresult;
+	    }
+
+	    else
+	    {
+	    	fresult = f_write(&fil, data, num_bytes, &bw);
+	    	if (fresult != FR_OK)
+	    	{
+	    		char *buf = malloc(100*sizeof(char));
+	    		sprintf (buf, "ERROR!!! No. %d while writing to the FILE *%s*\n\n", fresult, name);
+	    		println(buf);
+	    		free(buf);
+	    	}
+
+	    	/* Close file */
+	    	fresult = f_close(&fil);
+	    	if (fresult != FR_OK)
+	    	{
+	    		char *buf = malloc(100*sizeof(char));
+	    		sprintf (buf, "ERROR!!! No. %d in closing file *%s* after writing it\n\n", fresult, name);
+	    		println(buf);
+	    		free(buf);
+	    	}
+	    	else
+	    	{
+	    		char *buf = malloc(100*sizeof(char));
+	    		sprintf (buf, "File *%s* is WRITTEN and CLOSED successfully\n", name);
+	    		println(buf);
+	    		free(buf);
+	    	}
+	    }
+	    return fresult;
+	}
+}
+
 
 FRESULT Write_File_u16 (char *name, uint16_t *data, uint32_t num_bytes)
 {
@@ -204,6 +271,65 @@ FRESULT Write_File_u16 (char *name, uint16_t *data, uint32_t num_bytes)
 	    else
 	    {
 	    	fresult = f_write(&fil, data, num_bytes, &bw);
+	    	if (fresult != FR_OK)
+	    	{
+	    		char *buf = malloc(100*sizeof(char));
+	    		sprintf (buf, "ERROR!!! No. %d while writing to the FILE *%s*\n\n", fresult, name);
+	    		println(buf);
+	    		free(buf);
+	    	}
+
+	    	/* Close file */
+	    	fresult = f_close(&fil);
+	    	if (fresult != FR_OK)
+	    	{
+	    		char *buf = malloc(100*sizeof(char));
+	    		sprintf (buf, "ERROR!!! No. %d in closing file *%s* after writing it\n\n", fresult, name);
+	    		println(buf);
+	    		free(buf);
+	    	}
+	    	else
+	    	{
+	    		char *buf = malloc(100*sizeof(char));
+	    		sprintf (buf, "File *%s* is WRITTEN and CLOSED successfully\n", name);
+	    		println(buf);
+	    		free(buf);
+	    	}
+	    }
+	    return fresult;
+	}
+}
+
+FRESULT Write_File_16 (char *name, volatile int16_t *data, uint32_t num_bytes)
+{
+
+	/**** check whether the file exists or not ****/
+	fresult = f_stat (name, &fno);
+	if (fresult != FR_OK)
+	{
+		char *buf = malloc(100*sizeof(char));
+		sprintf (buf, "ERROR!!! *%s* does not exists\n\n", name);
+		println(buf);
+	    free(buf);
+	    return fresult;
+	}
+
+	else
+	{
+	    /* Create a file with read write access and open it */
+	    fresult = f_open(&fil, name, FA_OPEN_EXISTING | FA_WRITE);
+	    if (fresult != FR_OK)
+	    {
+	    	char *buf = malloc(100*sizeof(char));
+	    	sprintf (buf, "ERROR!!! No. %d in opening file *%s*\n\n", fresult, name);
+	    	println(buf);
+	        free(buf);
+	        return fresult;
+	    }
+
+	    else
+	    {
+	    	fresult = f_write(&fil, (int16_t*)data, num_bytes, &bw);
 	    	if (fresult != FR_OK)
 	    	{
 	    		char *buf = malloc(100*sizeof(char));
@@ -413,6 +539,70 @@ FRESULT Update_File (char *name, char *data)
     return fresult;
 }
 
+FRESULT Update_File_16 (char *name, volatile int16_t *data, uint32_t num_bytes)
+{
+	/**** check whether the file exists or not ****/
+	fresult = f_stat (name, &fno);
+	if (fresult != FR_OK)
+	{
+		char *buf = malloc(100*sizeof(char));
+		sprintf (buf, "ERROR!!! *%s* does not exists\n\n", name);
+		println (buf);
+		free(buf);
+	    return fresult;
+	}
+
+	else
+	{
+		 /* Create a file with read write access and open it */
+	    fresult = f_open(&fil, name, FA_OPEN_APPEND | FA_WRITE);
+	    if (fresult != FR_OK)
+	    {
+	    	char *buf = malloc(100*sizeof(char));
+	    	sprintf (buf, "ERROR!!! No. %d in opening file *%s*\n\n", fresult, name);
+	    	println(buf);
+	        free(buf);
+	        return fresult;
+	    }
+
+	    /* Writing data */
+	    fresult = f_write(&fil, (int16_t*)data, num_bytes, &bw);
+	    if (fresult != FR_OK)
+	    {
+	    	char *buf = malloc(100*sizeof(char));
+	    	sprintf (buf, "ERROR!!! No. %d in writing file *%s*\n\n", fresult, name);
+	    	println(buf);
+	    	free(buf);
+	    }
+
+	    else
+	    {
+	    	char *buf = malloc(100*sizeof(char));
+	    	sprintf (buf, "*%s* UPDATED successfully\n", name);
+	    	println(buf);
+	    	free(buf);
+	    }
+
+	    /* Close file */
+	    fresult = f_close(&fil);
+	    if (fresult != FR_OK)
+	    {
+	    	char *buf = malloc(100*sizeof(char));
+	    	sprintf (buf, "ERROR!!! No. %d in closing file *%s*\n\n", fresult, name);
+	    	println(buf);
+	    	free(buf);
+	    }
+	    else
+	    {
+	    	char *buf = malloc(100*sizeof(char));
+	    	sprintf (buf, "File *%s* CLOSED successfully\n", name);
+	    	println(buf);
+	    	free(buf);
+	     }
+	}
+    return fresult;
+}
+
 FRESULT Remove_File (char *name)
 {
 	/**** check whether the file exists or not ****/
@@ -484,4 +674,8 @@ void Check_SD_Space (void)
     println(buf);
     free(buf);
 }
+
+#ifdef __cplusplus
+}
+#endif
 
