@@ -16,6 +16,8 @@ EdgeImpulse.joshbird98-project-1.1.0.4.MachineLearningCcjoshbird98AaprojectAa1Jj
 EdgeImpulse.joshbird98-project-1.1.0.4.joshbird98AaprojectAa1JjMachineLearning_Checked=true
 EdgeImpulse.joshbird98-project-1.1.0.4_SwParameter=MachineLearningCcjoshbird98AaprojectAa1JjCore\:true;
 FATFS.BSP.number=1
+FATFS.IPParameters=_USE_LFN
+FATFS._USE_LFN=1
 FATFS0.BSP.STBoard=false
 FATFS0.BSP.api=Unknown
 FATFS0.BSP.component=
@@ -343,7 +345,7 @@ ProjectManager.FreePins=false
 ProjectManager.HalAssertFull=false
 ProjectManager.HeapSize=0x800
 ProjectManager.KeepUserCode=true
-ProjectManager.LastFirmware=true
+ProjectManager.LastFirmware=false
 ProjectManager.LibraryCopy=1
 ProjectManager.MainLocation=Core/Src
 ProjectManager.NoMain=false

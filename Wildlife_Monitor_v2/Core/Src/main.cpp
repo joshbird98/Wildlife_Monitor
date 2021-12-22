@@ -47,7 +47,7 @@ static void MX_TIM17_Init(void);
 
 static void Manual_TIM16(void);
 struct PowerStatus updatePowerStatus(struct PowerStatus powerstat);
-void write_audio_sample_sd(uint16_t *data);
+uint8_t write_audio_sample_sd(volatile int16_t *data, const char* animal_class, uint8_t prob);
 void light_show(uint16_t delay, uint8_t repeats);
 void ADC_Select_CH0 (void);
 void ADC_Select_CH1 (void);
@@ -99,27 +99,9 @@ int main(void)
 			preprocess_audio(sample_start_location);
 
 			//save newest audio sample to SD card
-			// read the RTC registers inside the STM32
-			uint32_t date_reg = RTC->DR;
-			uint32_t time_reg = RTC->TR;
-			// interpret their BCD format into regular values and assign to month,day,hours,min,secs
-
-			uint8_t day = (10 * ((date_reg >> 4	) & 0x3)) + (date_reg & 0x3F);
-			uint8_t month = (10 * ((date_reg >> 12) & 0x1)) + ((date_reg >> 8) & 0xF);
-			uint8_t year = (10 * ((date_reg >> 20) & 0xF)) + ((date_reg >> 16) & 0xF);
-			uint8_t hours = (10 * ((time_reg >> 20) & 0x3)) + ((time_reg >> 16) & 0xF);
-			uint8_t mins = (10 * ((time_reg >> 12) & 0x7)) + ((time_reg >> 8) & 0xF);
-			uint8_t secs = (10 * ((time_reg >> 4) & 0x7)) + (time_reg & 0xF);
-
-			Mount_SD("/");
-			char filename[100];
-			sprintf(filename, "%d.wav", secs);
-			Create_File(filename);
-			Write_File_u8(filename, wav_header, 44);
-			Update_File_16(filename, &audio_buffer[sample_start_location], (AUDIO_SAMPLE_RATE*AUDIO_BUFFER_SECS));
-			Unmount_SD("/");
-
-			//write_audio_sample_sd(&audio_buffer[sample_start_location]);
+			const char *animal_class = "FOX";
+			uint8_t prob = 81;
+			//write_audio_sample_sd(&audio_buffer[sample_start_location], animal_class, prob);
 
 			/*// Print out the entire sample for analysis on PC (blocking process)
 			println("NEW_SAMPLE");
@@ -340,7 +322,7 @@ static void MX_RTC_Init(void)
   }
   sDate.WeekDay = RTC_WEEKDAY_MONDAY;
   sDate.Month = RTC_MONTH_DECEMBER;
-  sDate.Date = 0x20;
+  sDate.Date = 0x10;
   sDate.Year = 0x21;
 
   if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
@@ -740,24 +722,46 @@ struct PowerStatus updatePowerStatus(struct PowerStatus powerstat)
 
 
 // Writes in half the audio buffer to the SD in a file with timestamped name - UNTESTED
-void write_audio_sample_sd(uint16_t *data)
+uint8_t write_audio_sample_sd(volatile int16_t *data, const char* animal_class, uint8_t prob)
 {
 	// read the RTC registers inside the STM32
 	uint32_t date_reg = RTC->DR;
 	uint32_t time_reg = RTC->TR;
 	// interpret their BCD format into regular values and assign to month,day,hours,min,secs
-	uint8_t month = (10 * ((date_reg >> 12) & 0x1)) + ((date_reg >> 8) & 0xF);
 	uint8_t day = (10 * ((date_reg >> 4	) & 0x3)) + (date_reg & 0x3F);
+	uint8_t month = (10 * ((date_reg >> 12) & 0x1)) + ((date_reg >> 8) & 0xF);
+	uint8_t year = (10 * ((date_reg >> 20) & 0xF)) + ((date_reg >> 16) & 0xF);
 	uint8_t hours = (10 * ((time_reg >> 20) & 0x3)) + ((time_reg >> 16) & 0xF);
 	uint8_t mins = (10 * ((time_reg >> 12) & 0x7)) + ((time_reg >> 8) & 0xF);
 	uint8_t secs = (10 * ((time_reg >> 4) & 0x7)) + (time_reg & 0xF);
+	if (Mount_SD("/")){
+		println("Failed to write audio sample onto SD card.");
+		return 0;
+	}
 
-	Mount_SD("/");
-	char filename[100];
-	sprintf(filename, "AUDIO_SAMPLE_%d-%d_%d%d%d.raw", month, day, hours, mins, secs);
-	Create_File(filename);
-	Write_File_u16(filename, data, (AUDIO_SAMPLE_RATE*AUDIO_BUFFER_SECS));
+	uint32_t entry_number = entry_number_update();
+	if (entry_number == 0) return 0;	//failure to complete - check SD card?
+
+	char new_audio_filename[100];
+	sprintf(new_audio_filename, "%08lu.WAV", entry_number);
+	Create_File(new_audio_filename);
+	Write_File_u8(new_audio_filename, wav_header, 44);
+	Update_File_16(new_audio_filename, audio_buffer, (AUDIO_SAMPLE_RATE*AUDIO_BUFFER_SECS));
+
+	//create matching metadata for wav file
+	char new_metadata_filename[100];
+	sprintf(new_metadata_filename, "%08lu.TXT", entry_number);
+	Create_File(new_metadata_filename);
+	char buffer[100];
+	sprintf(buffer, "METADATA for %08lu.WAV\nCLASSIFICATION: %s\nPROBABILITY: %d\nDATE: %d/%d/%d\nTIME: %d:%d:%d",
+			entry_number, animal_class, prob, day, month, year, hours, mins, secs);
+	Update_File(new_metadata_filename, buffer);
+
 	Unmount_SD("/");
+	char print_buffer[100];
+	sprintf(print_buffer, "%s sample recorded on %d/%d/%d at %d:%d:%d", animal_class, day, month, year, hours, mins, secs);
+	println(print_buffer);
+	return 1;
 }
 
 
