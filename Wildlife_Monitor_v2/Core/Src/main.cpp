@@ -47,7 +47,7 @@ static void MX_TIM17_Init(void);
 
 static void Manual_TIM16(void);
 struct PowerStatus updatePowerStatus(struct PowerStatus powerstat);
-uint8_t write_audio_sample_sd(volatile int16_t *data, const char* animal_class, uint8_t prob);
+uint8_t write_audio_sample_sd(volatile int16_t *data, const char* animal_class, uint8_t prob, uint8_t pause);
 void light_show(uint16_t delay, uint8_t repeats);
 void ADC_Select_CH0 (void);
 void ADC_Select_CH1 (void);
@@ -99,9 +99,10 @@ int main(void)
 			preprocess_audio(sample_start_location);
 
 			//save newest audio sample to SD card
+
 			const char *animal_class = "FOX";
 			uint8_t prob = 81;
-			//write_audio_sample_sd(&audio_buffer[sample_start_location], animal_class, prob);
+			write_audio_sample_sd(&audio_buffer[sample_start_location], animal_class, prob, 1);
 
 			/*// Print out the entire sample for analysis on PC (blocking process)
 			println("NEW_SAMPLE");
@@ -722,7 +723,7 @@ struct PowerStatus updatePowerStatus(struct PowerStatus powerstat)
 
 
 // Writes in half the audio buffer to the SD in a file with timestamped name - UNTESTED
-uint8_t write_audio_sample_sd(volatile int16_t *data, const char* animal_class, uint8_t prob)
+uint8_t write_audio_sample_sd(volatile int16_t *data, const char* animal_class, uint8_t prob, uint8_t pause)
 {
 	// read the RTC registers inside the STM32
 	uint32_t date_reg = RTC->DR;
@@ -734,6 +735,7 @@ uint8_t write_audio_sample_sd(volatile int16_t *data, const char* animal_class, 
 	uint8_t hours = (10 * ((time_reg >> 20) & 0x3)) + ((time_reg >> 16) & 0xF);
 	uint8_t mins = (10 * ((time_reg >> 12) & 0x7)) + ((time_reg >> 8) & 0xF);
 	uint8_t secs = (10 * ((time_reg >> 4) & 0x7)) + (time_reg & 0xF);
+	if (pause == 1) __HAL_RCC_TIM16_CLK_DISABLE(); // stop clock from interrupting dump
 	if (Mount_SD("/")){
 		println("Failed to write audio sample onto SD card.");
 		return 0;
@@ -746,7 +748,7 @@ uint8_t write_audio_sample_sd(volatile int16_t *data, const char* animal_class, 
 	sprintf(new_audio_filename, "%08lu.WAV", entry_number);
 	Create_File(new_audio_filename);
 	Write_File_u8(new_audio_filename, wav_header, 44);
-	Update_File_16(new_audio_filename, audio_buffer, (AUDIO_SAMPLE_RATE*AUDIO_BUFFER_SECS));
+	Update_File_16(new_audio_filename, data, (AUDIO_SAMPLE_RATE*AUDIO_BUFFER_SECS));
 
 	//create matching metadata for wav file
 	char new_metadata_filename[100];
@@ -761,6 +763,7 @@ uint8_t write_audio_sample_sd(volatile int16_t *data, const char* animal_class, 
 	char print_buffer[100];
 	sprintf(print_buffer, "%s sample recorded on %d/%d/%d at %d:%d:%d", animal_class, day, month, year, hours, mins, secs);
 	println(print_buffer);
+	if (pause == 1) __HAL_RCC_TIM16_CLK_ENABLE();
 	return 1;
 }
 
