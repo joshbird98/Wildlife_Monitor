@@ -250,10 +250,10 @@ uint32_t entry_number_update(void)
 		println("Creating ENTRY.bin");
 		Create_File(name);
 		char entry_str[100];
-		entry = 1;
+		entry = 2;
 		sprintf(entry_str, "%lu", entry);
 		Update_File(name, entry_str);
-		return entry;
+		return 1;
 	}
 
 	else
@@ -298,6 +298,13 @@ uint32_t entry_number_update(void)
 		return entry;
 	}
 	return 0;
+}
+
+uint8_t radio_log_exists(void)
+{
+	fresult = f_stat ("RADIO.TXT", &fno);
+	if (fresult != FR_OK) return 0;
+	return 1;
 }
 
 FRESULT Read_File (char *name)
@@ -383,6 +390,33 @@ FRESULT Update_File (char *name, char *data)
 }
 
 FRESULT Update_File_16 (char *name, volatile int16_t *data, uint32_t num_bytes)
+{
+	/**** check whether the file exists or not ****/
+	fresult = f_stat (name, &fno);
+	if (fresult != FR_OK)
+	{
+	    return fresult;
+	}
+
+	else
+	{
+		 /* Create a file with read write access and open it */
+	    fresult = f_open(&fil, name, FA_OPEN_APPEND | FA_WRITE);
+	    if (fresult != FR_OK)
+	    {
+	        return fresult;
+	    }
+
+	    /* Writing data */
+	    fresult = f_write(&fil, (int16_t*)data, num_bytes, &bw);
+
+	    /* Close file */
+	    fresult = f_close(&fil);
+	}
+    return fresult;
+}
+
+FRESULT Update_File_u8 (char *name, uint8_t *data, uint32_t num_bytes)
 {
 	/**** check whether the file exists or not ****/
 	fresult = f_stat (name, &fno);

@@ -36,6 +36,7 @@ FRESULT Format_SD (void);
 FRESULT Write_File (char *name, char *data, uint32_t num_bytes);
 
 uint32_t entry_number_update(void);
+uint8_t radio_log_exists(void);
 FRESULT Update_File_u32 (char *name, uint32_t *data, uint32_t num_bytes);
 FRESULT Write_File_16 (char *name, volatile int16_t *data, uint32_t num_bytes);
 FRESULT Write_File_u16 (char *name, uint16_t *data, uint32_t num_bytes);
@@ -66,6 +67,7 @@ uint32_t Check_SD_Space (void);
  */
 FRESULT Update_File (char *name, char *data);
 FRESULT Update_File_16 (char *name, volatile int16_t *data, uint32_t num_bytes);
+FRESULT Update_File_u8 (char *name, uint8_t *data, uint32_t num_bytes);
 
 
 #ifdef __cplusplus

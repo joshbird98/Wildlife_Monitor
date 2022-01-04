@@ -10,8 +10,8 @@
  radio_transmit(hspi, timeout, message) - attempts to send message as LoRa packet, for up to timeout (ms)
  radio_off() - low power mode, call to radio_on() should be made to exit
  eg.
- radio_on(hspi1);
- if (radio_receive(hspi1, 30000))
+    radio_on(hspi1);
+    if (radio_receive(hspi1, 30000))
 	{
 		println("Packet received...");
 		print_lora_pkt();
@@ -160,6 +160,7 @@ uint8_t radio_receive(SPI_HandleTypeDef hspi, uint32_t timeout_ms);
 uint8_t setRX(SPI_HandleTypeDef hspi, uint32_t timeout_ms);
 uint8_t radio_transmit(SPI_HandleTypeDef hspi, uint32_t timeout_ms, const char *message);
 uint8_t setTX(SPI_HandleTypeDef hspi, uint32_t timeout_ms, const char *message);
+uint8_t transmit_demo(SPI_HandleTypeDef hspi);
 
 #ifdef __cplusplus
 }

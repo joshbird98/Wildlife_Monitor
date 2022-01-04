@@ -5,6 +5,11 @@
   * @brief          : Main program body
   *****************************************************************************/
 
+#include <stdarg.h>
+#include "edge-impulse-sdk/classifier/ei_run_classifier.h"
+
+using namespace ei;
+
 #include "main.h"
 #include "fatfs.h"
 #include "string.h"
@@ -26,11 +31,16 @@ TIM_HandleTypeDef htim17;
 UART_HandleTypeDef huart1;
 
 struct PowerStatus PowerStatus1;
+struct classificationResult classi_result;
 uint16_t mic_gain;
 volatile uint32_t audio_buffer_location = 0;
-volatile int16_t audio_buffer[AUDIO_SAMPLE_RATE * AUDIO_BUFFER_SECS];
+int16_t audio_buffer[AUDIO_SAMPLE_RATE * AUDIO_BUFFER_SECS]; //was volatile
 volatile uint8_t audio_buffer_flag = 0;
-
+uint32_t sample_start_location = 0;
+uint8_t UART_rxBuffer[12] = {0};
+uint8_t UART_Rx_Flag = 0;
+uint8_t radio_window_flag = 0;
+static bool debug_nn = true; // Set this to true to see e.g. features generated from the raw signal
 char sd_buffer[100];
 
 /* Private function prototypes -----------------------------------------------*/
@@ -47,8 +57,7 @@ static void MX_TIM17_Init(void);
 
 static void Manual_TIM16(void);
 struct PowerStatus updatePowerStatus(struct PowerStatus powerstat);
-uint8_t write_audio_sample_sd(volatile int16_t *data, const char* animal_class, uint8_t prob, uint8_t pause);
-void light_show(uint16_t delay, uint8_t repeats);
+uint8_t write_audio_sample_sd(int16_t *data, const char* animal_class, uint8_t prob, uint8_t pause);
 void ADC_Select_CH0 (void);
 void ADC_Select_CH1 (void);
 void ADC_Select_CHVBAT(void);
@@ -58,6 +67,9 @@ void preprocess_audio(uint32_t sample_start_location);
 void setRx(void);
 void setTx(void);
 uint16_t auto_adjust_gain(uint32_t sample_start_location);
+void led_demo(void);
+void pc_software_demo(void);
+static int microphone_audio_signal_get_data(size_t offset, size_t length, float *out_ptr);
 
 int main(void)
 {
@@ -69,60 +81,44 @@ int main(void)
 	MX_SDMMC1_SD_Init();
 	MX_SPI1_Init();
 	MX_USART1_UART_Init();
+	HAL_UART_Receive_IT(&huart1, UART_rxBuffer, 12);
 	MX_FATFS_Init();
 	MX_CRC_Init();
 	MX_RTC_Init();
 	Manual_TIM16();
 	MX_TIM17_Init();
-
 	HAL_COMP_Start_IT(&hcomp1);
+	__HAL_RCC_TIM16_CLK_DISABLE();
 	light_show(200, 1);
 	println("Wildlife monitor has started up!");
+
+	radio_on(hspi1);
+	//print_neural_network_info();
 
 	/* Infinite loop */
 	while (1)
 	{
+		//transmit_demo(hspi1);
+		//handle_radio(hspi1);
+		//handle_usb_control();
+		//led_demo();
+		//pc_software_demo();
+
 		if (audio_buffer_flag == 1)	//audio buffer is half full with new data
 		{
-			light_show(10,1);
 			audio_buffer_flag = 0;
-
-			// determining start location of audio sample in buffer (either 0 or full/2)
-			// determine which half to the buffer to look at (start->halfway OR halfway->end)
-			uint32_t sample_start_location = 0;
+			sample_start_location = 0;
 			if (audio_buffer_location < (AUDIO_SAMPLE_RATE * AUDIO_SAMPLE_SECS))
-			{
 				sample_start_location = (AUDIO_SAMPLE_RATE * AUDIO_SAMPLE_SECS);
-			}
 
-			//do some pre-processing to remove pops
-			preprocess_audio(sample_start_location);
-
-			//save newest audio sample to SD card
-
-			const char *animal_class = "FOX";
-			uint8_t prob = 81;
-			write_audio_sample_sd(&audio_buffer[sample_start_location], animal_class, prob, 1);
-
-			/*// Print out the entire sample for analysis on PC (blocking process)
-			println("NEW_SAMPLE");
-			__HAL_RCC_TIM16_CLK_DISABLE(); // stop clock from interrupting dump
-			for (uint32_t i = sample_start_location; i < (sample_start_location + (AUDIO_SAMPLE_RATE * AUDIO_SAMPLE_SECS)); i++)
-			{
-				printint16_t(audio_buffer[i]);
-				print(",");
-			}
-			println("");
-			__HAL_RCC_TIM16_CLK_ENABLE();
-
-			light_show(200,1);
-
-			//mic_gain = auto_adjust_gain(sample_start_location);*/
+			preprocess_audio(sample_start_location); 					// forces audio to average at zero
+			//print_audiosample(sample_start_location);				// prints audio sample to serial
+			classi_result = audio_classify(sample_start_location, 2);	// classifies result
+			if (classi_result.result == 1)
+				write_audio_sample_sd(&audio_buffer[sample_start_location], classi_result.class_name, classi_result.confidence, 1);
 		}
 	}
 }
-
-
 
 /**
   * @brief System Clock Configuration
@@ -723,8 +719,17 @@ struct PowerStatus updatePowerStatus(struct PowerStatus powerstat)
 
 
 // Writes in half the audio buffer to the SD in a file with timestamped name - UNTESTED
-uint8_t write_audio_sample_sd(volatile int16_t *data, const char* animal_class, uint8_t prob, uint8_t pause)
+uint8_t write_audio_sample_sd(int16_t *data, const char* animal_class, uint8_t prob, uint8_t pause)
 {
+	//check if SD card is inserted
+	if (HAL_GPIO_ReadPin(CARD_GPIO_Port, CARD_Pin) == 1)
+	{
+		light_show(100,5);
+		println("SD card not inserted!");
+		led_rgb(3, 'r');
+		return 0;
+	}
+	led_rgb(2, 'b');
 	// read the RTC registers inside the STM32
 	uint32_t date_reg = RTC->DR;
 	uint32_t time_reg = RTC->TR;
@@ -738,12 +743,11 @@ uint8_t write_audio_sample_sd(volatile int16_t *data, const char* animal_class, 
 	if (pause == 1) __HAL_RCC_TIM16_CLK_DISABLE(); // stop clock from interrupting dump
 	if (Mount_SD("/")){
 		println("Failed to write audio sample onto SD card.");
+		led_rgb(3, 'r');
 		return 0;
 	}
-
 	uint32_t entry_number = entry_number_update();
 	if (entry_number == 0) return 0;	//failure to complete - check SD card?
-
 	char new_audio_filename[100];
 	sprintf(new_audio_filename, "%08lu.WAV", entry_number);
 	Create_File(new_audio_filename);
@@ -764,6 +768,7 @@ uint8_t write_audio_sample_sd(volatile int16_t *data, const char* animal_class, 
 	sprintf(print_buffer, "%s sample recorded on %d/%d/%d at %d:%d:%d", animal_class, day, month, year, hours, mins, secs);
 	println(print_buffer);
 	if (pause == 1) __HAL_RCC_TIM16_CLK_ENABLE();
+	led_rgb(2, 'o');
 	return 1;
 }
 
@@ -830,6 +835,14 @@ void led_rgb(uint8_t led, uint8_t colour)
 	default:
 	  break;
   }
+}
+
+// Control colours of all three LEDs in just one command
+void multi_led_rgb(uint8_t colour1, uint8_t colour2, uint8_t colour3)
+{
+	led_rgb(1, colour1);
+	led_rgb(2, colour2);
+	led_rgb(3, colour3);
 }
 
 
@@ -987,6 +1000,24 @@ void print_lora_pkt(void)
   HAL_UART_Transmit(&huart1, (uint8_t *) newline, 2, 10);
 }
 
+void print_neural_network_info(void)
+{
+	println("\r\nInferencing settings:");
+	print("Interval [ms * 1000]: ");
+	printint32_t((int32_t)(1000.0*EI_CLASSIFIER_INTERVAL_MS));
+	println("");
+	print("Frame size: ");
+	printint32_t(EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE);
+	println("");
+	print("Sample length [ms]: ");
+	printint32_t((int32_t)(EI_CLASSIFIER_RAW_SAMPLE_COUNT / 16));
+	println("");
+	print("No. of classes: ");
+	printint32_t((int32_t)(sizeof(ei_classifier_inferencing_categories) /
+									sizeof(ei_classifier_inferencing_categories[0])));
+	println("");
+}
+
 
 // Set the ADC Channel
 void ADC_Select_CH0 (void)
@@ -1067,6 +1098,19 @@ void printPowerStatus(struct PowerStatus power_status)
     println("");
 }
 
+// Prints out an entire audiosample from RAM to USB Serial
+void print_audiosample(uint32_t sample_start_location)
+{
+	__HAL_RCC_TIM16_CLK_DISABLE(); // stop clock from interrupting dumpprintln("NEW_SAMPLE");
+	for (uint32_t i = sample_start_location; i < (sample_start_location + (AUDIO_SAMPLE_RATE * AUDIO_SAMPLE_SECS)); i++)
+	{
+		printint16_t(audio_buffer[i]);
+		print(",");
+	}
+	println("");
+	__HAL_RCC_TIM16_CLK_ENABLE();
+}
+
 
 // This function attempts to automatically adjust the microphone gain
 // based on the loudness of a previous audio sample
@@ -1103,12 +1147,276 @@ void preprocess_audio(uint32_t sample_start_location)
 	sample_average = (int16_t)(sample_sum / sample_count);
 
 
-	for (uint32_t i = sample_start_location + 2; i < (sample_start_location + (AUDIO_SAMPLE_RATE * AUDIO_SAMPLE_SECS) - 2); i++)
+	for (uint32_t i = sample_start_location; i < (sample_start_location + (AUDIO_SAMPLE_RATE * AUDIO_SAMPLE_SECS)); i++)
 	{
 		audio_buffer[i] = audio_buffer[i] - sample_average;
 	}
 }
 
+struct classificationResult audio_classify(uint32_t sample_start_location, uint8_t verbose_lvl)
+{
+	println("Classifying audio...");
+	struct classificationResult class_res;
+	class_res.result = 0;
+	const char *tmp = "null";
+	memset(class_res.class_name, 0, sizeof class_res.class_name);
+	strncpy(class_res.class_name, tmp, sizeof class_res.class_name - 1);
+	class_res.class_num = 0;
+	class_res.confidence = -1;
+
+	signal_t signal;
+	signal.total_length = EI_CLASSIFIER_SLICE_SIZE;
+	signal.get_data = &microphone_audio_signal_get_data;
+	ei_impulse_result_t result = {0};
+
+	uint8_t ix = 0;
+
+	EI_IMPULSE_ERROR r = run_classifier_continuous(&signal, &result, debug_nn);
+
+	if (r != EI_IMPULSE_OK)
+	{
+		if (verbose_lvl > 0)
+		{
+			print("ERR: Failed to run classifier");
+			printint32_t((int32_t)r);
+			println("");
+			led_rgb(1, 'r'); //failed
+		}
+		return class_res;
+	}
+
+	else	// classification was successful
+	{
+		for (ix = 0; ix < EI_CLASSIFIER_LABEL_COUNT; ix++)
+		{
+			if ((int32_t)(result.classification[ix].value * 100) > class_res.confidence)
+			{
+				class_res.confidence = (int32_t)(result.classification[ix].value * 100);
+				class_res.class_num = ix;
+			}
+		}
+
+		if (class_res.confidence > CLASSIFICATION_CONFIDENCE_THRESHOLD)
+		{
+			class_res.result = 1;
+			memset(class_res.class_name, 0, sizeof class_res.class_name);
+			strncpy(class_res.class_name, result.classification[class_res.class_num].label, sizeof class_res.class_name - 1);
+
+			if (verbose_lvl > 1) print("MATCH!");
+		}
+
+		if (verbose_lvl > 0)	 // print the classificaiton output to serial
+		{
+			if (verbose_lvl > 1) // also print the time taken etc
+			{
+				println("Predictions ");
+				print("(DSP: ");
+				printint32_t((int32_t)result.timing.dsp);
+				print(" ms., Classification: ");
+				printint32_t((int32_t)result.timing.classification);
+				print(" ms., Anomaly: ");
+				printint32_t((int32_t)result.timing.anomaly);
+				println(" ms.");
+			}
+
+			for (ix = 0; ix < EI_CLASSIFIER_LABEL_COUNT; ix++)
+			{
+				print(result.classification[ix].label);
+				print(": ");
+				printint32_t((int32_t)(result.classification[ix].value * 100));
+				println("");
+			}
+
+			if (strcmp(classi_result.class_name, "Background")) led_rgb(1, 'g'); //background
+			if (strcmp(classi_result.class_name, "Birdsong"))   led_rgb(1, 'b'); //birdsong
+			if (strcmp(classi_result.class_name, "voices"))     led_rgb(1, 'w'); //voices
+		}
+	}
+	return class_res;
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+	UART_Rx_Flag = 1;
+    HAL_UART_Receive_IT(&huart1, UART_rxBuffer, 12);
+}
+
+// If USB has received relevant command from PC, share the collected data
+void handle_usb_control(void)
+{
+	if (UART_Rx_Flag == 1)
+	{
+		// dump (then delete) the category classifications log file
+		// dump (then delete) the radio log file
+
+		//needs function that reads a given file line by line and copies it to
+	}
+}
+
+// listens for new packets from other WM's, if it receives one it writes it to the SD card
+// then transmits its own packet (format below)...
+//BYTE 1: DEVICE NAME (ideally unique for mesh network)
+//BYTE 2: BATTERY LVL
+//BYTE 3 & 4: classification category 1 counter
+//BYTE 5 & 6: classification category 2 counter
+//BYTE 7 & 8: classification category 3 counter
+
+uint8_t handle_radio(SPI_HandleTypeDef hspi1) {
+	// check date and time
+	radio_on(hspi1);
+	if (radio_receive(hspi1, 30000))
+	{
+		println("Packet received...");
+		int32_t rssi = getPacketRSSI(hspi1); //dBm
+
+		//share over serial
+		/*println("RADIO");
+		char serial_message[100];
+		uint8_t device_name = recMessage[0];
+		uint8_t battery_lvl = recMessage[1];
+		sprintf(serial_message, "%d|%d|%d|%d|%d", recMessage[0]);
+		println(serial_message);*/
+
+		//write packet and metadata to SD card
+		//check if SD card is inserted
+
+		/*uint8_t packet_buffer[16] ={0};
+		memcpy(packet_buffer, (uint8_t *) recMessage, 8);
+		packet_buffer[8] = (0xFF) & (rssi >> 24);
+		packet_buffer[9] = (0xFF) & (rssi >> 16);
+		packet_buffer[10] = (0xFF) & (rssi >> 8);
+		packet_buffer[11] = (0xFF) & rssi;
+
+
+		if (HAL_GPIO_ReadPin(CARD_GPIO_Port, CARD_Pin) == 1)
+		{
+			light_show(100,5);
+			println("SD card not inserted!");
+			led_rgb(3, 'r');
+			return 0;
+		}
+		led_rgb(2, 'b');
+		// read the RTC registers inside the STM32
+		uint32_t date_reg = RTC->DR;
+		// interpret their BCD format into regular values and assign to month,day,hours,min,secs
+		uint8_t day = (10 * ((date_reg >> 4	) & 0x3)) + (date_reg & 0x3F);
+		uint8_t month = (10 * ((date_reg >> 12) & 0x1)) + ((date_reg >> 8) & 0xF);
+		uint8_t year = (10 * ((date_reg >> 20) & 0xF)) + ((date_reg >> 16) & 0xF);
+		packet_buffer[12] = day;
+		packet_buffer[13] = month;
+		packet_buffer[14] = year;
+		packet_buffer[15] = '\n';
+
+		if (Mount_SD("/")){
+			println("Failed to write audio sample onto SD card.");
+			led_rgb(3, 'r');
+			return 0;
+		}
+		//SD card is inserted and mounted, now ensure radio log at RADIO.TXT exists
+		char filename[15];
+		sprintf(filename, "RADIO.TXT");
+		if (radio_log_exists() == 0)
+		{
+			println("Creating RADIO.TXT");
+			Create_File(filename);
+			Write_File_u8(filename, packet_buffer, 16);
+		}
+		else
+		{
+			Update_File_u8(filename, packet_buffer, 16);
+		}*/
+	}
+
+	/*
+	// transmit own packet
+	uint8_t tx_message[8];
+	tx_message[0] = 0x01;			//device name
+	tx_message[1] = 0x02;			//battery level
+	tx_message[2] = 0x03;			//(0xFF) & (category1_cnt >> 8)
+	tx_message[3] = 0x04;			//category1_cnt
+	tx_message[4] = 0x05;			//(0xFF) & (category2_cnt >> 8)
+	tx_message[5] = 0x06;			//category2_cnt
+	tx_message[6] = 0x07;			//(0xFF) & (category3_cnt >> 8)
+	tx_message[7] = 0x08;			//category3_cnt
+
+	if (radio_transmit(hspi1, 30000, (const char*) tx_message))
+	{
+		println("Transmission successful");
+		return 1;
+	}
+	else
+		println("Transmission failed.");
+	*/
+	return 0;
+}
+
+//loops some LED colours
+void led_demo(void)
+{
+	while (1 == 1)
+	{
+		multi_led_rgb('r', 'g', 'b');
+		HAL_Delay(3000);
+		multi_led_rgb('y', 'p', 'c');
+		HAL_Delay(3000);
+		multi_led_rgb('w', 'w', 'w');
+		HAL_Delay(3000);
+	}
+}
+
+//pc_software_demo, sends pretend data over serial for demonstration purposes
+void pc_software_demo(void)
+{
+	while (1 == 1)
+	{
+		//send serial "DEVICE_NAME|BATTERY_PERCENTAGE|CATEGORY_NAME|CATEGORY_COUNTS|RSSI"
+		char transmit_buffer[100] = {0};
+		char buffer [33];
+		uint8_t rand_val = 0xFF & (HAL_GetTick() % 5);
+
+		if (rand_val == 0) strcpy(transmit_buffer, "1|");
+		else if (rand_val == 1) strcpy(transmit_buffer, "2|");
+		else strcpy(transmit_buffer, "0|");
+
+		strcat(transmit_buffer, "9");
+		itoa (rand_val, buffer,10);
+		strcat(transmit_buffer, buffer);
+		strcat(transmit_buffer, "|");
+
+		if (rand_val == 0) strcat(transmit_buffer, "Dog|");
+		else if (rand_val == 1) strcat(transmit_buffer, "Cat|");
+		else strcat(transmit_buffer, "T-Rex|");
+
+		uint8_t new_rand_val = 0xFF & (HAL_GetTick() % 20);
+		itoa (rand_val, buffer,10);
+		strcat(transmit_buffer, buffer);
+		strcat(transmit_buffer, "|");
+
+		if (rand_val == 0)
+			strcat(transmit_buffer, "0");
+		strcat(transmit_buffer, "-7");
+		itoa (rand_val, buffer,10);
+		strcat(transmit_buffer, buffer);
+
+		println(transmit_buffer);
+		light_show(200, 1);
+
+		//wait some pseudo-random time
+		HAL_Delay(4000);
+		HAL_Delay(10 * (HAL_GetTick() % 1000) * (HAL_GetTick() % 10));
+	}
+}
+
+
+/**
+ * Get raw audio signal data
+ */
+static int microphone_audio_signal_get_data(size_t offset, size_t length, float *out_ptr)
+{
+    numpy::int16_to_float(&audio_buffer[sample_start_location + offset], out_ptr, length);
+
+    return 0;
+}
 
 /**
   * @brief  This function is executed in case of error occurrence.

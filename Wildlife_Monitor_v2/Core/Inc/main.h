@@ -49,6 +49,20 @@ extern "C" {
 
 /* USER CODE END EM */
 
+struct PowerStatus {
+	uint8_t status_flag;
+	uint16_t ureg_millivolts;
+	uint16_t battery_millivolts;
+	uint16_t vbat_millivolts;
+};
+
+struct classificationResult {
+	uint8_t result;		//1 for success, 0 for failure
+	char class_name[100];
+	size_t class_num;
+	int32_t confidence;
+};
+
 /* Exported functions prototypes ---------------------------------------------*/
 void Error_Handler(void);
 
@@ -64,8 +78,16 @@ void printint16_t(int16_t value);
 void printuint8_t(uint8_t value);
 void printint8_t(uint8_t value);
 void print_lora_pkt(void);
+void print_neural_network_info(void);
+void print_audiosample(uint32_t sample_start_location);
 
 void led_rgb(uint8_t led, uint8_t colour);
+void light_show(uint16_t delay, uint8_t repeats);
+void multi_led_rgb(uint8_t colour1, uint8_t colour2, uint8_t colour3);
+struct classificationResult audio_classify(uint32_t sample_start_location, uint8_t verbose_lvl);
+
+void handle_usb_control(void);
+uint8_t handle_radio(SPI_HandleTypeDef hspi1);
 
 /* USER CODE END EFP */
 
@@ -148,13 +170,8 @@ void led_rgb(uint8_t led, uint8_t colour);
 #define DEFAULT_MIC_GAIN 1000
 #define TARGET_BIT_RANGE 20000
 
+#define CLASSIFICATION_CONFIDENCE_THRESHOLD 95
 
-struct PowerStatus {
-	uint8_t status_flag;
-	uint16_t ureg_millivolts;
-	uint16_t battery_millivolts;
-	uint16_t vbat_millivolts;
-};
 
 /* USER CODE END Private defines */
 

@@ -403,7 +403,7 @@ void getRxBufferStatus(SPI_HandleTypeDef hspi, uint8_t *buffer)
 	buffer[2] -= 1;
 }
 
-
+// returns RSSI for the packet (dBm)
 int32_t getPacketRSSI(SPI_HandleTypeDef hspi)
 {
 	uint8_t data[] = {GETPKTSTAT_CMD, 0x00, 0x00, 0x00, 0x00};
@@ -413,6 +413,7 @@ int32_t getPacketRSSI(SPI_HandleTypeDef hspi)
 	return pktrssi;
 }
 
+// returns RSSI for the signal (dBm)
 int32_t getSignalRSSI(SPI_HandleTypeDef hspi)
 {
 	uint8_t data[] = {GETPKTSTAT_CMD, 0x00, 0x00, 0x00, 0x00};
@@ -422,6 +423,7 @@ int32_t getSignalRSSI(SPI_HandleTypeDef hspi)
 	return sigrssi;
 }
 
+// returns SNR (dB)
 int32_t getSNR(SPI_HandleTypeDef hspi)
 {
 	uint8_t data[] = {GETPKTSTAT_CMD, 0x00, 0x00, 0x00, 0x00};
@@ -598,6 +600,26 @@ uint8_t setTX(SPI_HandleTypeDef hspi, uint32_t timeout_ms, const char *message)
 	if (HAL_GPIO_ReadPin(RADIO_DIO1_GPIO_Port, RADIO_DIO1_Pin) == 1)
 		return 1;
 	return 0;
+}
+
+//Transmits "WM". Requires radio_on() to be called previously
+uint8_t transmit_demo(SPI_HandleTypeDef hspi)
+{
+	println("Attempting transmission...");
+	const char* msg = "WM";
+	uint8_t success = radio_transmit(hspi, 30000, msg);
+	light_show(30,3);
+	if (success == 1)
+	{
+		multi_led_rgb('g','g','g');
+		println("Transmission successful");
+	}
+	else
+	{
+		multi_led_rgb('r', 'r', 'r');
+		println("Transmission failed.");
+	}
+	return success;
 }
 
 #ifdef __cplusplus
