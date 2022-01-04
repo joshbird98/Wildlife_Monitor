@@ -25,7 +25,7 @@
 #include <stdint.h>
 #include "model_metadata.h"
 
-const char* ei_classifier_inferencing_categories[] = { "corvidae", "cricket", "elephantidae", "noise", "wolf" };
+const char* ei_classifier_inferencing_categories[] = { "Background", "Birdsong", "voices" };
 
 uint8_t ei_dsp_config_9_axes[] = { 0 };
 const uint32_t ei_dsp_config_9_axes_size = 1;
@@ -34,12 +34,12 @@ ei_dsp_config_mfe_t ei_dsp_config_9 = {
     1,
     0.01f,
     0.01f,
-    100,
+    50,
     512,
     10,
     8000,
     101,
-    -52
+    -65
 };
 
 #endif // _EI_CLASSIFIER_MODEL_METADATA_H_
